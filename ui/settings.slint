@@ -1,0 +1,257 @@
+import { Button, ScrollView, SpinBox, ComboBox, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { AppAppearance, ShortcutEntry } from "appearance.slint";
+
+component SettingsTab inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected;
+    in property <bool> available: true;
+    callback clicked;
+    height: (36px * AppAppearance.ui-scale) * AppAppearance.font-scale; horizontal-stretch: 1; vertical-stretch: 0;
+    border-radius: (6px * AppAppearance.ui-scale); border-width: (1px * AppAppearance.ui-scale);
+    border-color: root.selected ? AppAppearance.foreground : AppAppearance.border;
+    background: root.selected ? AppAppearance.active : area.has-hover || keys.has-focus ? AppAppearance.hover : AppAppearance.surface;
+    opacity: root.available ? 1 : 0.5;
+    accessible-role: button; accessible-label: root.text; accessible-enabled: root.available;
+    accessible-action-default => { if root.available { root.clicked(); } }
+    forward-focus: keys;
+    keys := FocusScope {
+        key-pressed(event) => {
+            if root.available && (event.text == Key.Return || event.text == " ") {
+                root.clicked(); return accept;
+            }
+            return reject;
+        }
+    }
+    Text { font-family: AppAppearance.font-family; width: parent.width; height: parent.height; text: root.text; color: AppAppearance.foreground; font-size: (14px * AppAppearance.ui-scale) * AppAppearance.font-scale; horizontal-alignment: center; vertical-alignment: center; }
+    area := TouchArea { enabled: root.available; clicked => { root.clicked(); } }
+}
+
+component PreferencesPrompt inherits Rectangle {
+    in property <string> status;
+    in property <bool> writable: true;
+    callback save;
+    callback discard;
+    callback cancel;
+    background: AppAppearance.window-background.with-alpha(0.94);
+    init => { keys.focus(); }
+    // This hit area consumes clicks outside the confirmation card too.
+    TouchArea { width: parent.width; height: parent.height; }
+    keys := FocusScope {
+        width: parent.width; height: parent.height;
+        key-pressed(event) => {
+            if event.text == Key.Escape { root.cancel(); return accept; }
+            return reject;
+        }
+        Rectangle {
+            x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+            width: min((380px * AppAppearance.ui-scale), parent.width - (32px * AppAppearance.ui-scale)); height: min((244px * AppAppearance.ui-scale) * AppAppearance.font-scale, parent.height - (32px * AppAppearance.ui-scale));
+            background: AppAppearance.surface; border-radius: (8px * AppAppearance.ui-scale); border-width: (1px * AppAppearance.ui-scale); border-color: AppAppearance.border;
+            ScrollView {
+                width: parent.width; height: parent.height;
+                viewport-width: max(self.visible-width, (340px * AppAppearance.ui-scale));
+                VerticalBox {
+                    padding: (16px * AppAppearance.ui-scale); spacing: (12px * AppAppearance.ui-scale);
+                    Text { font-family: AppAppearance.font-family; text: "保存当前修改吗？"; color: AppAppearance.foreground; font-size: (16px * AppAppearance.ui-scale) * AppAppearance.font-scale; font-weight: 600; }
+                    Text { font-family: AppAppearance.font-family; text: "切换页面前，可以保存或丢弃当前修改，也可以留在当前页面。"; wrap: word-wrap; color: AppAppearance.muted-foreground; font-size: (12px * AppAppearance.ui-scale) * AppAppearance.font-scale; }
+                    Text { font-family: AppAppearance.font-family; text: root.status; wrap: word-wrap; color: AppAppearance.danger-foreground; font-size: (12px * AppAppearance.ui-scale) * AppAppearance.font-scale; }
+                    HorizontalBox {
+                        spacing: (8px * AppAppearance.ui-scale);
+                        Button { min-width: (96px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); text: "保存"; enabled: root.writable; clicked => { root.save(); } }
+                        Button { min-width: (96px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); text: "丢弃"; clicked => { root.discard(); } }
+                        Button { min-width: (96px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); text: "取消"; clicked => { root.cancel(); } }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component SettingsWindow inherits Window {
+    default-font-family: AppAppearance.font-family;
+    default-font-size: (14px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+    title: "设置 · Sticky Notes Pro";
+    preferred-width: (420px * AppAppearance.ui-scale);
+    preferred-height: (530px * AppAppearance.ui-scale);
+    // Native minima stay reachable even at 250% on a high-DPI monitor.
+    min-width: 280px;
+    min-height: 240px;
+    background: AppAppearance.window-background;
+    in-out property <int> note-width: 360;
+    in-out property <int> note-height: 420;
+    in-out property <int> font-size-value: 16;
+    in-out property <[string]> font-families;
+    in-out property <[ShortcutEntry]> shortcuts;
+    in-out property <int> font-family-index;
+    in-out property <int> theme-index;
+    in-out property <int> appearance-index: 0;
+    in-out property <int> window-font-family-index: 0;
+    in-out property <int> window-font-size-value: 14;
+    in-out property <int> scale-percent-value: 100;
+    in-out property <string> status;
+    in-out property <bool> writable: true;
+    private property <int> current-tab: 0;
+    private property <int> pending-tab: -1;
+    private property <bool> attempted-save: false;
+    private property <int> saved-note-width: 360;
+    private property <int> saved-note-height: 420;
+    private property <int> saved-font-size: 16;
+    private property <int> saved-theme-index: 0;
+    private property <int> saved-font-family-index: 0;
+    private property <int> saved-appearance-index: 0;
+    private property <int> saved-window-font-family-index: 0;
+    private property <int> saved-window-font-size: 14;
+    private property <int> saved-scale-percent: 100;
+    private property <length> tab-height: (36px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+    private property <length> footer-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale) + (16px * AppAppearance.ui-scale) * AppAppearance.font-scale + (24px * AppAppearance.ui-scale);
+    private property <bool> dirty: note-width != saved-note-width || note-height != saved-note-height || font-size-value != saved-font-size || theme-index != saved-theme-index || font-family-index != saved-font-family-index || appearance-index != saved-appearance-index || window-font-family-index != saved-window-font-family-index || window-font-size-value != saved-window-font-size || scale-percent-value != saved-scale-percent;
+    callback apply(int, int, int, int, int, int, int, int, int);
+    callback preferences-saved;
+    preferences-saved => {
+        root.saved-note-width = root.note-width;
+        root.saved-note-height = root.note-height;
+        root.saved-font-size = root.font-size-value;
+        root.saved-theme-index = root.theme-index;
+        root.saved-font-family-index = root.font-family-index;
+        root.saved-appearance-index = root.appearance-index;
+        root.saved-window-font-family-index = root.window-font-family-index;
+        root.saved-window-font-size = root.window-font-size-value;
+        root.saved-scale-percent = root.scale-percent-value;
+        if root.pending-tab >= 0 { root.current-tab = root.pending-tab; }
+        root.pending-tab = -1;
+        root.attempted-save = false;
+    }
+    callback discard-changes;
+    callback cancel-settings;
+    function select-tab(tab: int) {
+        if tab != root.current-tab && root.pending-tab < 0 {
+            if root.dirty { root.pending-tab = tab; root.attempted-save = false; }
+            else { root.current-tab = tab; }
+        }
+    }
+    // The outer viewport includes tabs and Apply, so oversized content never
+    // prevents returning to Appearance and reducing application scaling.
+    ScrollView {
+        width: parent.width;
+        height: max(0px, parent.height - (16px * AppAppearance.ui-scale) * AppAppearance.font-scale - (18px * AppAppearance.ui-scale));
+        viewport-width: max(self.visible-width, (360px * AppAppearance.ui-scale));
+        VerticalLayout {
+            padding: (20px * AppAppearance.ui-scale);
+            spacing: (20px * AppAppearance.ui-scale);
+            HorizontalLayout {
+                height: root.tab-height; spacing: (8px * AppAppearance.ui-scale);
+                SettingsTab { text: "外观"; selected: root.current-tab == 0; available: root.pending-tab < 0; clicked => { root.select-tab(0); } }
+                SettingsTab { text: "便签设置"; selected: root.current-tab == 1; available: root.pending-tab < 0; clicked => { root.select-tab(1); } }
+                SettingsTab { text: "快捷键"; selected: root.current-tab == 2; available: root.pending-tab < 0; clicked => { root.select-tab(2); } }
+            }
+            Rectangle {
+                height: max((200px * AppAppearance.ui-scale), root.height - root.tab-height - root.footer-height - (80px * AppAppearance.ui-scale));
+                vertical-stretch: 0;
+                if root.current-tab == 0: ScrollView {
+                    width: parent.width; height: parent.height;
+                    viewport-width: self.visible-width;
+                    horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
+                    VerticalLayout {
+                        alignment: start; spacing: (14px * AppAppearance.ui-scale); padding-right: (16px * AppAppearance.ui-scale); padding-bottom: (12px * AppAppearance.ui-scale);
+                        Text { font-family: AppAppearance.font-family; text: "全局外观"; color: AppAppearance.foreground; font-size: (16px * AppAppearance.ui-scale) * AppAppearance.font-scale; font-weight: 600; }
+                        Text { font-family: AppAppearance.font-family; text: "应用到所有窗口。白色主题会随深浅外观变换。"; color: AppAppearance.muted-foreground; font-size: (12px * AppAppearance.ui-scale) * AppAppearance.font-scale; wrap: word-wrap; }
+                        HorizontalLayout {
+                            spacing: (12px * AppAppearance.ui-scale);
+                            Text { font-family: AppAppearance.font-family; text: "外观模式"; color: AppAppearance.foreground; width: (96px * AppAppearance.ui-scale); }
+                            ComboBox { min-width: (160px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); model: ["跟随系统", "浅色", "深色"]; current-index <=> root.appearance-index; enabled: root.writable && root.pending-tab < 0; }
+                        }
+                        Rectangle { height: (1px * AppAppearance.ui-scale); vertical-stretch: 0; background: AppAppearance.border; }
+                        Text { font-family: AppAppearance.font-family; text: "窗口字体"; color: AppAppearance.foreground; font-size: (16px * AppAppearance.ui-scale) * AppAppearance.font-scale; font-weight: 600; }
+                        Text { font-family: AppAppearance.font-family; text: "应用到菜单、列表和设置等窗口界面，不改变便签正文。"; color: AppAppearance.muted-foreground; font-size: (12px * AppAppearance.ui-scale) * AppAppearance.font-scale; wrap: word-wrap; }
+                        HorizontalLayout {
+                            spacing: (12px * AppAppearance.ui-scale);
+                            Text { font-family: AppAppearance.font-family; text: "字体"; color: AppAppearance.foreground; width: (96px * AppAppearance.ui-scale); }
+                            ComboBox { min-width: (160px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); model: root.font-families; current-index <=> root.window-font-family-index; enabled: root.writable && root.pending-tab < 0; }
+                        }
+                        HorizontalLayout {
+                            spacing: (12px * AppAppearance.ui-scale);
+                            Text { font-family: AppAppearance.font-family; text: "字号"; color: AppAppearance.foreground; width: (96px * AppAppearance.ui-scale); }
+                            SpinBox { min-width: (128px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); value <=> root.window-font-size-value; minimum: 10; maximum: 24; enabled: root.writable && root.pending-tab < 0; }
+                        }
+                        Rectangle { height: (1px * AppAppearance.ui-scale); vertical-stretch: 0; background: AppAppearance.border; }
+                        Text { font-family: AppAppearance.font-family; text: "应用缩放"; color: AppAppearance.foreground; font-size: (16px * AppAppearance.ui-scale) * AppAppearance.font-scale; font-weight: 600; }
+                        Text { font-family: AppAppearance.font-family; text: "系统 DPI × 应用倍率，同时缩放界面和便签正文；不修改存储字号。保存后生效。"; color: AppAppearance.muted-foreground; font-size: (12px * AppAppearance.ui-scale) * AppAppearance.font-scale; wrap: word-wrap; }
+                        HorizontalLayout {
+                            spacing: (12px * AppAppearance.ui-scale);
+                            Text { font-family: AppAppearance.font-family; text: "缩放"; color: AppAppearance.foreground; width: (96px * AppAppearance.ui-scale); }
+                            SpinBox { min-width: (128px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); value <=> root.scale-percent-value; minimum: 50; maximum: 250; step-size: 10; enabled: root.writable && root.pending-tab < 0; }
+                            Text { text: "%"; font-family: AppAppearance.font-family; color: AppAppearance.foreground; horizontal-stretch: 0; vertical-alignment: center; }
+                        }
+                    }
+                }
+                if root.current-tab == 1: ScrollView {
+                    width: parent.width; height: parent.height;
+                    viewport-width: self.visible-width;
+                    horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
+                    VerticalLayout {
+                        alignment: start; spacing: (14px * AppAppearance.ui-scale); padding-right: (16px * AppAppearance.ui-scale); padding-bottom: (12px * AppAppearance.ui-scale);
+                        Text { font-family: AppAppearance.font-family; text: "字体与字号"; color: AppAppearance.foreground; font-size: (16px * AppAppearance.ui-scale) * AppAppearance.font-scale; font-weight: 600; }
+                        Text { font-family: AppAppearance.font-family; text: "字体和字号应用到所有便签。"; color: AppAppearance.muted-foreground; font-size: (12px * AppAppearance.ui-scale) * AppAppearance.font-scale; wrap: word-wrap; }
+                        HorizontalLayout {
+                            spacing: (12px * AppAppearance.ui-scale); Text { font-family: AppAppearance.font-family; text: "字体"; color: AppAppearance.foreground; width: (96px * AppAppearance.ui-scale); }
+                            ComboBox { min-width: (160px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); model: root.font-families; current-index <=> root.font-family-index; enabled: root.writable && root.pending-tab < 0; }
+                        }
+                        HorizontalLayout { spacing: (12px * AppAppearance.ui-scale); Text { font-family: AppAppearance.font-family; text: "字号"; color: AppAppearance.foreground; width: (96px * AppAppearance.ui-scale); } SpinBox { min-width: (128px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); value <=> root.font-size-value; minimum: 10; maximum: 32; enabled: root.writable && root.pending-tab < 0; } }
+                        Rectangle { height: (1px * AppAppearance.ui-scale); vertical-stretch: 0; background: AppAppearance.border; }
+                        Text { font-family: AppAppearance.font-family; text: "新便签默认值"; color: AppAppearance.foreground; font-size: (16px * AppAppearance.ui-scale) * AppAppearance.font-scale; font-weight: 600; }
+                        Text { font-family: AppAppearance.font-family; text: "默认尺寸用于没有可继承窗口尺寸的新便签；背景颜色只用于以后新建的便签。"; color: AppAppearance.muted-foreground; font-size: (12px * AppAppearance.ui-scale) * AppAppearance.font-scale; wrap: word-wrap; }
+                        HorizontalLayout { spacing: (12px * AppAppearance.ui-scale); Text { font-family: AppAppearance.font-family; text: "宽度"; color: AppAppearance.foreground; width: (96px * AppAppearance.ui-scale); } SpinBox { min-width: (128px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); value <=> root.note-width; minimum: 320; maximum: 3000; enabled: root.writable && root.pending-tab < 0; } }
+                        HorizontalLayout { spacing: (12px * AppAppearance.ui-scale); Text { font-family: AppAppearance.font-family; text: "高度"; color: AppAppearance.foreground; width: (96px * AppAppearance.ui-scale); } SpinBox { min-width: (128px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); value <=> root.note-height; minimum: 240; maximum: 3000; enabled: root.writable && root.pending-tab < 0; } }
+                        HorizontalLayout {
+                            spacing: (12px * AppAppearance.ui-scale); Text { font-family: AppAppearance.font-family; text: "背景颜色"; color: AppAppearance.foreground; width: (96px * AppAppearance.ui-scale); }
+                            ComboBox { min-width: (160px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); model: [AppAppearance.dark ? "黑色（白色主题）" : "白色", "黄色", "绿色", "粉色", "紫色", "蓝色", "灰色"]; current-index <=> root.theme-index; enabled: root.writable && root.pending-tab < 0; }
+                        }
+                    }
+                }
+                if root.current-tab == 2: ScrollView {
+                    width: parent.width; height: parent.height;
+                    viewport-width: self.visible-width;
+                    horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
+                    VerticalLayout {
+                        alignment: start; spacing: (6px * AppAppearance.ui-scale); padding-right: (16px * AppAppearance.ui-scale); padding-bottom: (12px * AppAppearance.ui-scale);
+                        Text { font-family: AppAppearance.font-family; text: "快捷键"; color: AppAppearance.foreground; font-size: (16px * AppAppearance.ui-scale) * AppAppearance.font-scale; font-weight: 600; }
+                        Text { font-family: AppAppearance.font-family; text: "快捷键仅在当前便签窗口内生效；自动保存始终开启。"; color: AppAppearance.muted-foreground; font-size: (12px * AppAppearance.ui-scale) * AppAppearance.font-scale; wrap: word-wrap; }
+                        for shortcut in root.shortcuts: Rectangle {
+                            min-height: (shortcut.section ? (44px * AppAppearance.ui-scale) : (40px * AppAppearance.ui-scale)) * AppAppearance.font-scale;
+                            vertical-stretch: 0;
+                            if shortcut.section: Text { font-family: AppAppearance.font-family;
+                                width: parent.width; height: parent.height;
+                                text: shortcut.label; color: AppAppearance.foreground;
+                                font-size: (16px * AppAppearance.ui-scale) * AppAppearance.font-scale; font-weight: 600; vertical-alignment: center;
+                            }
+                            if !shortcut.section: HorizontalLayout {
+                                spacing: (12px * AppAppearance.ui-scale); padding-top: (4px * AppAppearance.ui-scale); padding-bottom: (4px * AppAppearance.ui-scale);
+                                Text { font-family: AppAppearance.font-family; text: shortcut.label; color: AppAppearance.foreground; font-size: (14px * AppAppearance.ui-scale) * AppAppearance.font-scale; wrap: word-wrap; vertical-alignment: center; horizontal-stretch: 1; }
+                                Text { font-family: AppAppearance.font-family; text: shortcut.keys; color: AppAppearance.muted-foreground; font-size: (12px * AppAppearance.ui-scale) * AppAppearance.font-scale; width: min((160px * AppAppearance.ui-scale) * AppAppearance.font-scale, parent.width * 0.52); horizontal-stretch: 0; wrap: word-wrap; horizontal-alignment: right; vertical-alignment: center; }
+                            }
+                        }
+                    }
+                }
+            }
+            HorizontalLayout {
+                height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); spacing: (12px * AppAppearance.ui-scale);
+                Button { min-width: (96px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); text: "取消"; enabled: root.pending-tab < 0; clicked => { root.cancel-settings(); } }
+                Button { min-width: (96px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); text: "应用"; enabled: root.writable && root.pending-tab < 0; clicked => { root.attempted-save = true; root.apply(root.note-width, root.note-height, root.font-size-value, root.theme-index, root.font-family-index, root.appearance-index, root.window-font-family-index, root.window-font-size-value, root.scale-percent-value); } }
+            }
+        }
+    }
+    Text {
+        x: (12px * AppAppearance.ui-scale); y: parent.height - self.height - (9px * AppAppearance.ui-scale); width: parent.width - (24px * AppAppearance.ui-scale); height: (16px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+        text: root.dirty && !root.attempted-save ? "有未应用的修改" : root.status;
+        color: AppAppearance.status-foreground; font-size: (10px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+        overflow: elide; horizontal-alignment: right; vertical-alignment: center;
+        Tooltip { Text { text: root.dirty && !root.attempted-save ? "有未应用的修改" : root.status; font-family: AppAppearance.font-family; font-size: (14px * AppAppearance.ui-scale) * AppAppearance.font-scale; } }
+    }
+    if root.pending-tab >= 0: PreferencesPrompt {
+        width: parent.width; height: parent.height;
+        status: root.attempted-save ? root.status : "";
+        writable: root.writable;
+        save => { root.attempted-save = true; root.apply(root.note-width, root.note-height, root.font-size-value, root.theme-index, root.font-family-index, root.appearance-index, root.window-font-family-index, root.window-font-size-value, root.scale-percent-value); }
+        discard => { root.discard-changes(); }
+        cancel => { root.pending-tab = -1; root.attempted-save = false; }
+    }
+}

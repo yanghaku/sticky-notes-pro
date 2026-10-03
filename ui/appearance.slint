@@ -1,0 +1,53 @@
+import { Palette } from "std-widgets.slint";
+
+export global AppAppearance {
+    // 0 follows the live system preference; 1/2 override it for every component.
+    in-out property <int> mode-index: 0;
+    // UI typography is independent from the rasterized note body typography.
+    in-out property <string> font-family: "";
+    in-out property <float> font-size: 14;
+    in-out property <int> scale-percent: 100;
+    out property <float> ui-scale: min(250, max(50, scale-percent)) / 100.0;
+    out property <float> font-scale: min(24, max(10, font-size)) / 14;
+    // SlintInternal is unavailable to applications. Palette's effective base
+    // surface follows the system live even when color-scheme is `unknown`.
+    out property <bool> dark: mode-index == 2 || (mode-index == 0 && Palette.background.to-oklch().lightness < 0.5);
+    out property <color> foreground: dark ? #e8eaed : #343b46;
+    out property <color> muted-foreground: dark ? #aab0bb : #68717e;
+    out property <color> status-foreground: dark ? #e8eaed66 : #343b4666;
+    out property <color> surface: dark ? #27292d : #ffffff;
+    out property <color> window-background: dark ? #202124 : #faf9f6;
+    out property <color> border: dark ? #4a4e57 : #d9dce2;
+    out property <color> hover: dark ? #ffffff14 : #343b4610;
+    out property <color> active: dark ? #344a68 : #dbe9ff;
+    out property <color> danger-foreground: dark ? #ffc1b8 : #a32620;
+    out property <color> danger-background: dark ? #432a2a : #fff0ed;
+    out property <color> danger-hover: dark ? #603432 : #ffd8d3;
+    callback apply-mode(int);
+    apply-mode(index) => {
+        AppAppearance.mode-index = min(2, max(0, index));
+        Palette.color-scheme = AppAppearance.mode-index == 1 ? ColorScheme.light : AppAppearance.mode-index == 2 ? ColorScheme.dark : ColorScheme.unknown;
+    }
+    public pure function note-color(id: string) -> color {
+        if AppAppearance.dark {
+            return id == "yellow" ? #3a3323 : id == "green" ? #27392c : id == "pink" ? #3e2932 : id == "purple" ? #352e43 : id == "blue" ? #253742 : id == "gray" ? #343638 : #202124;
+        }
+        return id == "yellow" ? #fff4bf : id == "green" ? #daf2ce : id == "pink" ? #fbd8e2 : id == "purple" ? #e8ddfa : id == "blue" ? #d5ebfb : id == "gray" ? #e9e7e3 : #ffffff;
+    }
+}
+
+export struct NoteCard {
+    id: string,
+    theme-id: string,
+    preview: string,
+    created-at: string,
+    updated-at: string,
+    status: string,
+    busy: bool,
+}
+
+export struct ShortcutEntry {
+    label: string,
+    keys: string,
+    section: bool,
+}

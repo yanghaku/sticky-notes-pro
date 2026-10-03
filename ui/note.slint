@@ -1,0 +1,153 @@
+import { AppAppearance } from "appearance.slint";
+import { ScrollView } from "std-widgets.slint";
+import { Tool, MenuAction } from "controls.slint";
+
+export component NoteWindow inherits Window {
+    default-font-family: AppAppearance.font-family;
+    default-font-size: (14px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+    title: "Sticky Notes Pro";
+    preferred-width: (360px * AppAppearance.ui-scale);
+    preferred-height: (420px * AppAppearance.ui-scale);
+    in property <length> available-width: 320px;
+    in property <length> available-height: 240px;
+    min-width: min(root.available-width, max(320px, 320px * AppAppearance.ui-scale));
+    min-height: min(root.available-height, max(240px, 240px * AppAppearance.ui-scale));
+    no-frame: true;
+    resize-border-width: (5px * AppAppearance.ui-scale);
+    in-out property <color> note-background: AppAppearance.note-color(root.theme-id);
+    in-out property <image> editor-image;
+    in-out property <string> status;
+    in-out property <string> error;
+    in-out property <bool> pin-supported: true;
+    in-out property <bool> pinned: false;
+    in-out property <bool> frozen: false;
+    in-out property <bool> readonly: false;
+    in-out property <string> readonly-text;
+    in-out property <string> editor-font-family;
+    in-out property <float> editor-font-size: 16;
+    in-out property <string> theme-id: "white";
+    out property <bool> menu-open: note-menu.is-open;
+    out property <float> view-width: canvas.width / 1px;
+    out property <float> view-height: canvas.height / 1px;
+    out property <float> canvas-x: canvas.x / 1px;
+    out property <float> canvas-y: canvas.y / 1px;
+    out property <bool> editor-focused: editor-focus.has-focus;
+    callback focus-editor;
+    focus-editor => { editor-focus.focus(); }
+    forward-focus: editor-focus;
+    callback dismiss-popups;
+    dismiss-popups => { note-menu.close(); }
+    callback drag-window;
+    callback pin;
+    callback open-list;
+    callback open-settings;
+    callback choose-theme(string);
+    callback close-note;
+    callback retry;
+    callback copy-all;
+    callback discard;
+    callback pointer(float, float, bool);
+    callback wheel(float);
+    always-on-top: root.pinned && root.pin-supported;
+    background: root.note-background;
+
+    Rectangle {
+        x: (6px * AppAppearance.ui-scale); y: (6px * AppAppearance.ui-scale); height: (34px * AppAppearance.ui-scale); width: parent.width - (12px * AppAppearance.ui-scale);
+        HorizontalLayout {
+            spacing: (2px * AppAppearance.ui-scale);
+            Rectangle {
+                horizontal-stretch: 1;
+                min-width: (20px * AppAppearance.ui-scale);
+                TouchArea {
+                    pointer-event(event) => {
+                        if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                            root.drag-window();
+                        }
+                    }
+                    double-clicked => { root.maximized = !root.maximized; }
+                }
+            }
+            Tool { icon: @image-url("icons/pin.svg"); description: !root.pin-supported ? "当前桌面不支持置顶" : root.pinned ? "取消置顶" : "置顶便签"; active: root.pinned; available: root.pin-supported; clicked => { root.pin(); } }
+            Tool { icon: @image-url("icons/menu.svg"); description: "菜单"; active: root.menu-open; clicked => { if root.menu-open { note-menu.close(); } else { note-menu.show(); } } }
+            Tool { icon: @image-url("icons/minimize.svg"); description: "最小化"; clicked => { root.minimized = true; } }
+            Tool { icon: root.maximized ? @image-url("icons/restore.svg") : @image-url("icons/maximize.svg"); description: root.maximized ? "还原窗口" : "最大化"; clicked => { root.maximized = !root.maximized; } }
+            Tool { icon: @image-url("icons/close.svg"); description: "关闭便签"; destructive: true; clicked => { root.close-note(); } }
+        }
+    }
+
+    canvas := Rectangle {
+        x: (12px * AppAppearance.ui-scale); y: (48px * AppAppearance.ui-scale); width: parent.width - (24px * AppAppearance.ui-scale); height: max((60px * AppAppearance.ui-scale), parent.height - (58px * AppAppearance.ui-scale) - (14px * AppAppearance.ui-scale) * AppAppearance.font-scale);
+        clip: true;
+        editor-focus := FocusScope { width: parent.width; height: parent.height; }
+        Image { source: root.editor-image; width: parent.width; height: parent.height; image-fit: fill; }
+        if root.readonly: Text {
+            text: root.readonly-text;
+            wrap: word-wrap;
+            color: AppAppearance.foreground;
+            font-family: root.editor-font-family;
+            font-size: root.editor-font-size * 1px;
+        }
+        TouchArea {
+            enabled: !root.frozen && !root.readonly;
+            mouse-cursor: text;
+            pointer-event(event) => {
+                if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                    root.pointer(self.mouse-x / 1px, self.mouse-y / 1px, false);
+                }
+            }
+            moved => { if self.pressed { root.pointer(self.mouse-x / 1px, self.mouse-y / 1px, true); } }
+            scroll-event(event) => { root.wheel(event.delta-y / 1px); return accept; }
+        }
+    }
+
+    Rectangle {
+        x: (12px * AppAppearance.ui-scale); y: parent.height - self.height - (6px * AppAppearance.ui-scale); width: parent.width - (24px * AppAppearance.ui-scale); height: (14px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+        Text { font-family: AppAppearance.font-family; width: parent.width; height: parent.height; text: root.status; color: AppAppearance.status-foreground; font-size: (9px * AppAppearance.ui-scale) * AppAppearance.font-scale; horizontal-alignment: right; vertical-alignment: center; overflow: elide; }
+        Tooltip { Text { font-family: AppAppearance.font-family; font-size: (14px * AppAppearance.ui-scale) * AppAppearance.font-scale; text: root.status; } }
+    }
+
+    note-menu := PopupWindow {
+        x: max((8px * AppAppearance.ui-scale), root.width - (247px * AppAppearance.ui-scale)); y: (42px * AppAppearance.ui-scale); width: (239px * AppAppearance.ui-scale); height: (70px * AppAppearance.ui-scale) + (78px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+        Rectangle {
+            background: AppAppearance.surface; border-radius: (8px * AppAppearance.ui-scale); border-width: (1px * AppAppearance.ui-scale); border-color: AppAppearance.border;
+            VerticalLayout {
+                padding: (10px * AppAppearance.ui-scale); spacing: (8px * AppAppearance.ui-scale);
+                MenuAction { text: "设置"; clicked => { note-menu.close(); root.open-settings(); } }
+                MenuAction { text: "便签列表"; clicked => { note-menu.close(); root.open-list(); } }
+                VerticalLayout {
+                    height: (34px * AppAppearance.ui-scale) + (14px * AppAppearance.ui-scale) * AppAppearance.font-scale; vertical-stretch: 0; spacing: (4px * AppAppearance.ui-scale);
+                    Text { font-family: AppAppearance.font-family; height: (14px * AppAppearance.ui-scale) * AppAppearance.font-scale; vertical-stretch: 0; text: "背景颜色"; color: AppAppearance.muted-foreground; font-size: (11px * AppAppearance.ui-scale) * AppAppearance.font-scale; }
+                    HorizontalLayout {
+                        height: (30px * AppAppearance.ui-scale); vertical-stretch: 0; spacing: (5px * AppAppearance.ui-scale);
+                        for id in ["white", "yellow", "green", "pink", "purple", "blue", "gray"]: Rectangle {
+                            width: (27px * AppAppearance.ui-scale); height: (30px * AppAppearance.ui-scale); border-radius: (5px * AppAppearance.ui-scale); background: AppAppearance.note-color(id);
+                            border-width: id == root.theme-id ? (2px * AppAppearance.ui-scale) : (1px * AppAppearance.ui-scale);
+                            border-color: id == root.theme-id ? AppAppearance.foreground : AppAppearance.border;
+                            TouchArea { enabled: !root.frozen && !root.readonly; clicked => { root.choose-theme(id); note-menu.close(); } }
+                            Tooltip { Text { font-family: AppAppearance.font-family; font-size: (14px * AppAppearance.ui-scale) * AppAppearance.font-scale; text: id == "white" ? (AppAppearance.dark ? "黑色（白色主题）" : "白色") : id == "yellow" ? "黄色" : id == "green" ? "绿色" : id == "pink" ? "粉色" : id == "purple" ? "紫色" : id == "blue" ? "蓝色" : "灰色"; } }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if root.error != "": Rectangle {
+        x: (8px * AppAppearance.ui-scale); y: (44px * AppAppearance.ui-scale); width: parent.width - (16px * AppAppearance.ui-scale); height: min((180px * AppAppearance.ui-scale) * AppAppearance.font-scale, parent.height - (80px * AppAppearance.ui-scale));
+        background: AppAppearance.dark ? #422d29 : #fff8f3; border-radius: (8px * AppAppearance.ui-scale); border-color: AppAppearance.dark ? #cd8c78 : #b75b43; border-width: (1px * AppAppearance.ui-scale);
+        ScrollView {
+            width: parent.width; height: parent.height;
+            viewport-width: self.visible-width;
+            horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
+            VerticalLayout {
+                padding: (12px * AppAppearance.ui-scale); spacing: (8px * AppAppearance.ui-scale);
+                Text { font-family: AppAppearance.font-family; text: root.error; wrap: word-wrap; color: AppAppearance.dark ? #ffb4a2 : #843d2c; font-size: (12px * AppAppearance.ui-scale) * AppAppearance.font-scale; }
+                HorizontalLayout {
+                    MenuAction { text: "重试"; clicked => { root.retry(); } }
+                    MenuAction { text: "复制内容"; clicked => { root.copy-all(); } }
+                }
+                MenuAction { text: "放弃未保存修改并关闭…"; clicked => { root.discard(); } }
+            }
+        }
+    }
+}

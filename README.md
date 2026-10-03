@@ -1,0 +1,63 @@
+# Sticky Notes Pro
+
+Rust 原生的桌面便签应用。每张便签都是一个独立小窗口，正文用纯文本保存，支持有序 / 无序列表、自动保存、撤销重做和七种背景颜色。
+
+## 特性
+
+- **列表编辑**：段落开头输入 `1. ` 得到有序列表，`- ` 或 `* ` 得到无序列表
+- **自动保存**：不需要手动保存。`Ctrl+S` 可立即提交保存或重试失败的便签
+- **外观**：跟随系统 / 浅色 / 深色三档，七种便签颜色各有浅深配色
+- **回收站**：删除的便签保留在“已删除”里，可以恢复，也可以逐条彻底删除（需确认，不可撤销）
+
+## 运行
+
+```sh
+cargo run --release
+```
+
+开发时可指定独立数据目录，避免混入日常便签：
+
+```sh
+# Linux / macOS
+STICKY_NOTES_DATA_DIR=$(mktemp -d) cargo run
+
+# Windows PowerShell
+$env:STICKY_NOTES_DATA_DIR = "$env:TEMP\sticky-notes-pro-dev"; cargo run
+```
+
+## 数据保存在本机
+
+不联网，所有内容只写本地：
+
+- 便签正文、颜色、窗口位置与启动状态 → 数据目录的 `app.db`（SQLite）
+- 全局设置（外观、缩放、字体、默认尺寸） → 配置目录的 `settings.json`
+
+路径由操作系统标准目录决定，见 [paths.rs](src/persistence/paths.rs)。
+设置 `STICKY_NOTES_DATA_DIR` 后，数据库、设置与单实例锁都放在该目录；同一目录同一时间只运行一个实例。
+
+新建的空白便签先作为内存草稿，输入内容后才写入数据库；已保存的便签被清空时会先询问，取消即恢复原内容。
+
+## 常用快捷键
+
+| 操作                | 按键                                                  |
+| ------------------- | ----------------------------------------------------- |
+| 新建便签            | Ctrl+N                                                |
+| 打开 / 激活便签列表 | Ctrl+Shift+L                                          |
+| 打开 / 激活设置     | Ctrl+,                                                |
+| 保存 / 重试保存     | Ctrl+S                                                |
+| 关闭当前便签        | Ctrl+W                                                |
+| 置顶 / 取消置顶     | Ctrl+Shift+P（平台支持时）                            |
+| 撤销 / 重做         | Ctrl+Z / Ctrl+Shift+Z（Windows、Linux 另支持 Ctrl+Y） |
+
+macOS 使用 Cmd。编辑、导航与列表操作的完整按键见设置 → 快捷键；当前版本不支持改键和系统级全局快捷键。关闭最后一个窗口即退出，下次启动恢复最后关闭的便签。
+
+## 文档
+
+- [产品规格](docs/product-spec.md)：范围、窗口、界面、编辑、快捷键、存储与架构
+- [开发待办](docs/development-status.md)：尚未完成与待测事项
+
+## 从源码检查
+
+```sh
+cargo check && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+```

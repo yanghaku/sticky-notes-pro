@@ -1,0 +1,94 @@
+import { Button, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { AppAppearance, NoteCard } from "appearance.slint";
+import { ColoredAction, DeleteButton } from "controls.slint";
+
+export component NotesListWindow inherits Window {
+    default-font-family: AppAppearance.font-family;
+    default-font-size: (14px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+    title: "便签列表 · Sticky Notes Pro";
+    preferred-width: (620px * AppAppearance.ui-scale);
+    preferred-height: (520px * AppAppearance.ui-scale);
+    min-width: 280px;
+    min-height: 200px;
+    background: AppAppearance.window-background;
+    in-out property <[NoteCard]> cards;
+    in-out property <bool> deleted-view: false;
+    in-out property <string> error;
+    callback new-note;
+    callback settings;
+    callback change-view(bool);
+    callback open-note(string);
+    callback delete-note(string);
+    callback restore-note(string);
+    callback purge-note(string);
+    ScrollView {
+        width: parent.width; height: parent.height;
+        viewport-width: max(self.visible-width, (360px * AppAppearance.ui-scale));
+        VerticalBox {
+            padding: (16px * AppAppearance.ui-scale);
+            spacing: (12px * AppAppearance.ui-scale);
+            Text { font-family: AppAppearance.font-family; text: root.deleted-view ? "已删除" : "便签"; font-size: (22px * AppAppearance.ui-scale) * AppAppearance.font-scale; color: AppAppearance.foreground; }
+            HorizontalBox {
+                Button { min-width: (96px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); text: root.deleted-view ? "返回便签" : "已删除"; clicked => { root.change-view(!root.deleted-view); } }
+                Button { min-width: (96px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); text: "设置"; clicked => { root.settings(); } }
+                Button { min-width: (96px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); text: "+ 新建"; clicked => { root.new-note(); } }
+            }
+            if root.error != "": Text { font-family: AppAppearance.font-family; text: root.error; wrap: word-wrap; color: AppAppearance.danger-foreground; }
+            ScrollView {
+                height: max((160px * AppAppearance.ui-scale), root.height - (160px * AppAppearance.ui-scale) * AppAppearance.font-scale);
+                viewport-width: self.visible-width;
+                horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
+                VerticalLayout {
+                    spacing: (10px * AppAppearance.ui-scale);
+                    for card in root.cards: Rectangle {
+                        min-height: (root.deleted-view ? (216px * AppAppearance.ui-scale) : (180px * AppAppearance.ui-scale)) * max(1, AppAppearance.font-scale);
+                        background: AppAppearance.note-color(card.theme-id);
+                        border-radius: (10px * AppAppearance.ui-scale);
+                        HorizontalLayout {
+                            padding: (12px * AppAppearance.ui-scale); spacing: (12px * AppAppearance.ui-scale);
+                            Rectangle {
+                                horizontal-stretch: 1;
+                                Text {
+                                    width: parent.width; height: parent.height;
+                                    font-family: AppAppearance.font-family;
+                                    text: card.preview;
+                                    horizontal-alignment: left; vertical-alignment: top;
+                                    wrap: word-wrap; overflow: elide;
+                                    color: AppAppearance.foreground;
+                                }
+                                TouchArea { enabled: !root.deleted-view && !card.busy; clicked => { root.open-note(card.id); } }
+                            }
+                            VerticalLayout {
+                                width: (160px * AppAppearance.ui-scale) * max(1, AppAppearance.font-scale); horizontal-stretch: 0; spacing: (6px * AppAppearance.ui-scale);
+                                Text {
+                                    font-family: AppAppearance.font-family;
+                                    height: (34px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+                                    vertical-stretch: 0; width: parent.width;
+                                    text: "创建时间\n" + card.created-at;
+                                    horizontal-alignment: left; vertical-alignment: top;
+                                    color: AppAppearance.muted-foreground;
+                                    font-size: (11px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+                                }
+                                Text {
+                                    font-family: AppAppearance.font-family;
+                                    height: (34px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+                                    vertical-stretch: 0; width: parent.width;
+                                    text: "最后修改时间\n" + card.updated-at;
+                                    horizontal-alignment: left; vertical-alignment: top;
+                                    color: AppAppearance.muted-foreground;
+                                    font-size: (11px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+                                }
+                                if card.status != "": Text { font-family: AppAppearance.font-family; height: (28px * AppAppearance.ui-scale) * AppAppearance.font-scale; vertical-stretch: 0; width: parent.width; text: card.status; wrap: word-wrap; overflow: elide; horizontal-alignment: left; color: AppAppearance.muted-foreground; font-size: (11px * AppAppearance.ui-scale) * AppAppearance.font-scale; }
+                                if root.deleted-view: ColoredAction { text: "恢复"; available: !card.busy; clicked => { root.restore-note(card.id); } }
+                                if root.deleted-view: ColoredAction { text: "彻底删除"; destructive: true; available: !card.busy; clicked => { root.purge-note(card.id); } }
+                                if !root.deleted-view: DeleteButton { available: !card.busy; clicked => { root.delete-note(card.id); } }
+                                Rectangle { vertical-stretch: 1; }
+                            }
+                        }
+                    }
+                    if root.cards.length == 0: Text { font-family: AppAppearance.font-family; text: root.deleted-view ? "没有已删除的便签" : "还没有便签"; color: AppAppearance.muted-foreground; }
+                }
+            }
+        }
+    }
+}

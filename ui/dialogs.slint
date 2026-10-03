@@ -1,0 +1,92 @@
+import { Button, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { AppAppearance } from "appearance.slint";
+import { ColoredAction, DeleteButton } from "controls.slint";
+
+export component DiscardDialog inherits Window {
+    default-font-family: AppAppearance.font-family;
+    default-font-size: (14px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+    title: "确认放弃修改";
+    preferred-width: (340px * AppAppearance.ui-scale);
+    preferred-height: (170px * AppAppearance.ui-scale);
+    min-width: 240px;
+    min-height: 160px;
+    background: AppAppearance.window-background;
+    callback confirm;
+    callback cancel;
+    ScrollView {
+        width: parent.width; height: parent.height;
+        viewport-width: max(self.visible-width, (340px * AppAppearance.ui-scale));
+        VerticalBox {
+            padding: (20px * AppAppearance.ui-scale); spacing: (16px * AppAppearance.ui-scale);
+            Text { font-family: AppAppearance.font-family; text: "尚未保存的修改将丢失。确定关闭这张便签？"; wrap: word-wrap; color: AppAppearance.foreground; }
+            HorizontalBox {
+                Button { min-width: (96px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); text: "取消"; clicked => { root.cancel(); } }
+                Button { min-width: (96px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); text: "放弃并关闭"; clicked => { root.confirm(); } }
+            }
+        }
+    }
+}
+
+export component EmptyDeleteDialog inherits Window {
+    default-font-family: AppAppearance.font-family;
+    default-font-size: (14px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+    title: "确认删除空便签";
+    preferred-width: (380px * AppAppearance.ui-scale);
+    preferred-height: (180px * AppAppearance.ui-scale);
+    min-width: 240px;
+    min-height: 160px;
+    background: AppAppearance.window-background;
+    callback confirm;
+    callback cancel;
+    ScrollView {
+        width: parent.width; height: parent.height;
+        viewport-width: max(self.visible-width, (380px * AppAppearance.ui-scale));
+        VerticalBox {
+            padding: (20px * AppAppearance.ui-scale); spacing: (16px * AppAppearance.ui-scale);
+            Text { font-family: AppAppearance.font-family; text: "这张已有便签已被清空。要删除它吗？删除后仍可恢复清空前的内容。"; wrap: word-wrap; color: AppAppearance.foreground; }
+            HorizontalBox {
+                Button { min-width: (96px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); text: "取消，恢复内容"; clicked => { root.cancel(); } }
+                DeleteButton { clicked => { root.confirm(); } }
+            }
+        }
+    }
+}
+
+export component PermanentDeleteDialog inherits Window {
+    default-font-family: AppAppearance.font-family;
+    default-font-size: (14px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+    title: "确认彻底删除便签";
+    preferred-width: (430px * AppAppearance.ui-scale);
+    preferred-height: (340px * AppAppearance.ui-scale);
+    min-width: 240px;
+    min-height: 160px;
+    background: AppAppearance.window-background;
+    in-out property <string> preview;
+    in-out property <bool> busy: false;
+    in-out property <string> error;
+    callback confirm;
+    callback cancel;
+    ScrollView {
+        width: parent.width; height: parent.height;
+        viewport-width: max(self.visible-width, (380px * AppAppearance.ui-scale));
+        VerticalBox {
+            padding: (20px * AppAppearance.ui-scale); spacing: (12px * AppAppearance.ui-scale);
+            Text { font-family: AppAppearance.font-family; text: "彻底删除这张便签？"; font-size: (18px * AppAppearance.ui-scale) * AppAppearance.font-scale; font-weight: 600; color: AppAppearance.foreground; }
+            Text { font-family: AppAppearance.font-family; text: "彻底删除后无法恢复，便签内容和窗口状态将移除。"; wrap: word-wrap; color: AppAppearance.foreground; }
+            Rectangle {
+                height: (96px * AppAppearance.ui-scale) * AppAppearance.font-scale; vertical-stretch: 0; clip: true;
+                background: AppAppearance.surface; border-radius: (6px * AppAppearance.ui-scale); border-width: (1px * AppAppearance.ui-scale); border-color: AppAppearance.border;
+                Text { font-family: AppAppearance.font-family;
+                    x: (10px * AppAppearance.ui-scale); y: (8px * AppAppearance.ui-scale); width: parent.width - (20px * AppAppearance.ui-scale); height: parent.height - (16px * AppAppearance.ui-scale);
+                    text: root.preview == "" ? "空便签" : root.preview;
+                    wrap: word-wrap; overflow: elide; color: AppAppearance.foreground; font-size: (13px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+                }
+            }
+            if root.error != "": Text { font-family: AppAppearance.font-family; text: root.error; wrap: word-wrap; color: AppAppearance.danger-foreground; }
+            HorizontalBox {
+                Button { min-width: (96px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); text: "取消"; enabled: !root.busy; clicked => { root.cancel(); } }
+                ColoredAction { text: root.busy ? "删除中…" : "彻底删除"; destructive: true; available: !root.busy; clicked => { root.confirm(); } }
+            }
+        }
+    }
+}

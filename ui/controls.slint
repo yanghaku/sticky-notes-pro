@@ -1,0 +1,113 @@
+import { AppAppearance } from "appearance.slint";
+
+export component Tool inherits Rectangle {
+    in property <image> icon;
+    in property <string> description;
+    in property <bool> available: true;
+    in property <bool> active: false;
+    in property <bool> destructive: false;
+    callback clicked;
+    width: (34px * AppAppearance.ui-scale);
+    height: (32px * AppAppearance.ui-scale);
+    border-radius: (6px * AppAppearance.ui-scale);
+    background: area.has-hover && root.destructive ? AppAppearance.danger-hover : root.active ? AppAppearance.active : area.has-hover ? AppAppearance.hover : transparent;
+    accessible-role: button;
+    accessible-label: root.description;
+    accessible-enabled: root.available;
+    accessible-action-default => { if root.available { root.clicked(); } }
+    Image {
+        x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+        width: (18px * AppAppearance.ui-scale); height: (18px * AppAppearance.ui-scale);
+        source: root.icon;
+        colorize: root.destructive && area.has-hover ? AppAppearance.danger-foreground : AppAppearance.foreground;
+        opacity: root.available ? 1 : 0.35;
+    }
+    area := TouchArea { enabled: root.available; clicked => { root.clicked(); } }
+    Tooltip { Text { font-family: AppAppearance.font-family; font-size: (14px * AppAppearance.ui-scale) * AppAppearance.font-scale; text: root.description; } }
+}
+
+export component DeleteButton inherits Rectangle {
+    in property <bool> available: true;
+    callback clicked;
+    width: (82px * AppAppearance.ui-scale) * max(1, AppAppearance.font-scale); height: (32px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+    border-radius: (6px * AppAppearance.ui-scale); border-width: (1px * AppAppearance.ui-scale); border-color: AppAppearance.dark ? #db827a : #c34438;
+    background: !root.available ? AppAppearance.surface : area.has-hover ? AppAppearance.danger-hover : AppAppearance.danger-background;
+    opacity: root.available ? 1 : 0.5;
+    accessible-role: button;
+    accessible-label: "删除便签";
+    accessible-enabled: root.available;
+    accessible-action-default => { if root.available { root.clicked(); } }
+    Image {
+        x: (12px * AppAppearance.ui-scale); y: (parent.height - self.height) / 2;
+        source: @image-url("icons/trash.svg"); width: (15px * AppAppearance.ui-scale); height: (15px * AppAppearance.ui-scale);
+        colorize: AppAppearance.danger-foreground;
+    }
+    Text { font-family: AppAppearance.font-family;
+        x: (32px * AppAppearance.ui-scale); width: parent.width - self.x - (10px * AppAppearance.ui-scale); height: parent.height;
+        text: "删除"; color: AppAppearance.danger-foreground; font-size: (12px * AppAppearance.ui-scale) * AppAppearance.font-scale; font-weight: 600;
+        vertical-alignment: center;
+    }
+    area := TouchArea { enabled: root.available; clicked => { root.clicked(); } }
+    Tooltip { Text { font-family: AppAppearance.font-family; font-size: (14px * AppAppearance.ui-scale) * AppAppearance.font-scale; text: "移到已删除，可恢复"; } }
+}
+
+export component ColoredAction inherits Rectangle {
+    in property <string> text;
+    in property <bool> available: true;
+    in property <bool> destructive: false;
+    callback clicked;
+    width: (104px * AppAppearance.ui-scale) * max(1, AppAppearance.font-scale); height: (32px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+    horizontal-stretch: 0; vertical-stretch: 0;
+    border-radius: (6px * AppAppearance.ui-scale);
+    background: root.destructive
+        ? (area.has-hover || focus.has-focus ? (AppAppearance.dark ? #d04940 : #b2342b) : (AppAppearance.dark ? #bd3e37 : #c53d32))
+        : (area.has-hover || focus.has-focus ? (AppAppearance.dark ? #3475c4 : #144fae) : (AppAppearance.dark ? #275fab : #175cd3));
+    opacity: root.available ? 1 : 0.45;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-enabled: root.available;
+    accessible-action-default => { if root.available { root.clicked(); } }
+    forward-focus: focus;
+    focus := FocusScope {
+        key-pressed(event) => {
+            if root.available && (event.text == Key.Return || event.text == " ") {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    Text { font-family: AppAppearance.font-family;
+        width: parent.width; height: parent.height;
+        text: root.text; color: #ffffff; font-size: (12px * AppAppearance.ui-scale) * AppAppearance.font-scale; font-weight: 600;
+        horizontal-alignment: center; vertical-alignment: center;
+    }
+    area := TouchArea { enabled: root.available; clicked => { root.clicked(); } }
+}
+
+export component MenuAction inherits Rectangle {
+    in property <string> text;
+    callback clicked;
+    height: (32px * AppAppearance.ui-scale) * AppAppearance.font-scale; vertical-stretch: 0;
+    border-radius: (5px * AppAppearance.ui-scale);
+    background: area.pressed ? AppAppearance.active : area.has-hover || focus.has-focus ? AppAppearance.hover : AppAppearance.surface;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => { root.clicked(); }
+    forward-focus: focus;
+    focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Return || event.text == " " {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    Text { font-family: AppAppearance.font-family;
+        x: (10px * AppAppearance.ui-scale); width: parent.width - (20px * AppAppearance.ui-scale); height: parent.height;
+        text: root.text; color: AppAppearance.foreground; font-size: (13px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+        vertical-alignment: center;
+    }
+    area := TouchArea { clicked => { root.clicked(); } }
+}
