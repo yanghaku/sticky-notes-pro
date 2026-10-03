@@ -23,6 +23,10 @@ impl App {
     /// document before Slint composites that same frame.
     pub(super) fn schedule_render(&self) {
         for panel in self.notes.values() {
+            let composing = !panel.preedit.is_empty() || panel.waiting_ime;
+            if panel.ui.get_composing() != composing {
+                panel.ui.set_composing(composing);
+            }
             if panel.restored && panel.render_dirty && panel.editor.is_some() {
                 panel.ui.window().request_redraw();
             }
@@ -55,6 +59,7 @@ impl Panel {
             return;
         }
         let Some(editor) = &self.editor else { return };
+        self.layout.set_typing_bold(editor.input_bold());
         let prepared = self.layout.prepare(
             &editor.rows(),
             editor.selection(),
@@ -80,6 +85,11 @@ impl Panel {
             return;
         }
         let Some(editor) = &self.editor else { return };
+        let bold = editor.bold_active();
+        if self.ui.get_bold_active() != bold {
+            self.ui.set_bold_active(bold);
+        }
+        self.layout.set_typing_bold(editor.input_bold());
         let rows = editor.rows();
         let rendered = self.layout.render(
             &rows,

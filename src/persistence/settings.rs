@@ -11,7 +11,7 @@ use std::{
 };
 use tempfile::NamedTempFile;
 
-use super::paths::parent_directory;
+use super::{NoteColors, paths::parent_directory};
 use crate::model::THEMES;
 
 const SETTINGS_VERSION: u32 = 1;
@@ -72,6 +72,7 @@ pub struct NoteSettings {
     pub default_width: f64,
     pub default_height: f64,
     pub default_theme: String,
+    pub colors: NoteColors,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,6 +119,7 @@ impl Default for NoteSettings {
             default_width: 360.0,
             default_height: 420.0,
             default_theme: "white".to_owned(),
+            colors: NoteColors::default(),
         }
     }
 }
@@ -177,6 +179,8 @@ impl Settings {
         // Read each known preference independently so one bad value cannot discard the others.
         let mut settings = Self::default();
         let mut repaired = false;
+        settings.note.colors =
+            NoteColors::read_preferences(value.pointer("/note/colors"), &mut repaired);
         if let Some(scale) = value.get("scale_percent") {
             match scale
                 .as_u64()

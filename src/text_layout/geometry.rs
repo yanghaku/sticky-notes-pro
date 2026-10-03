@@ -2,6 +2,7 @@
 
 use super::TextLayout;
 use crate::editor::Position;
+use crate::model::BoldRange;
 use cosmic_text::{Buffer, Cursor, Metrics};
 
 pub(super) struct RowLayout {
@@ -15,6 +16,9 @@ pub(super) struct RowLayout {
     pub(super) left: f32,
     pub(super) source_len: usize,
     pub(super) preedit: Option<(usize, usize)>,
+    /// Display ranges, including any temporary IME insertion. Style-only edits
+    /// must invalidate shaping even if the cached body text remains identical.
+    pub(super) bold: Vec<BoldRange>,
 }
 
 pub(super) struct VisualLine {

@@ -1,5 +1,6 @@
 import { Button, ScrollView, SpinBox, ComboBox, VerticalBox, HorizontalBox } from "std-widgets.slint";
-import { AppAppearance, ShortcutEntry } from "appearance.slint";
+import { AppAppearance, ShortcutEntry, ColorSlot } from "appearance.slint";
+import { ColorsEditor } from "colors.slint";
 
 component SettingsTab inherits Rectangle {
     in property <string> text;
@@ -70,6 +71,7 @@ export component SettingsWindow inherits Window {
     default-font-family: AppAppearance.font-family;
     default-font-size: (14px * AppAppearance.ui-scale) * AppAppearance.font-scale;
     title: "设置 · Sticky Notes Pro";
+    icon: @image-url("../asserts/icon.png");
     preferred-width: (420px * AppAppearance.ui-scale);
     preferred-height: (530px * AppAppearance.ui-scale);
     // Native minima stay reachable even at 250% on a high-DPI monitor.
@@ -89,6 +91,24 @@ export component SettingsWindow inherits Window {
     in-out property <int> scale-percent-value: 100;
     in-out property <string> status;
     in-out property <bool> writable: true;
+    in-out property <[ColorSlot]> color-slots;
+    in-out property <bool> colors-dirty: false;
+    in-out property <bool> colors-valid: true;
+    in-out property <int> color-mode: 0;
+    in-out property <int> color-slot: 0;
+    in-out property <string> color-red;
+    in-out property <string> color-green;
+    in-out property <string> color-blue;
+    in-out property <string> color-hex;
+    in-out property <string> color-error;
+    in-out property <string> color-warning;
+    in-out property <color> color-preview-background;
+    in-out property <color> color-preview-border;
+    in-out property <color> color-preview-foreground;
+    callback select-color(int, int);
+    callback edit-color-rgb(string, string, string);
+    callback edit-color-hex(string);
+    callback reset-color(bool);
     private property <int> current-tab: 0;
     private property <int> pending-tab: -1;
     private property <bool> attempted-save: false;
@@ -103,7 +123,7 @@ export component SettingsWindow inherits Window {
     private property <int> saved-scale-percent: 100;
     private property <length> tab-height: (36px * AppAppearance.ui-scale) * AppAppearance.font-scale;
     private property <length> footer-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale) + (16px * AppAppearance.ui-scale) * AppAppearance.font-scale + (24px * AppAppearance.ui-scale);
-    private property <bool> dirty: note-width != saved-note-width || note-height != saved-note-height || font-size-value != saved-font-size || theme-index != saved-theme-index || font-family-index != saved-font-family-index || appearance-index != saved-appearance-index || window-font-family-index != saved-window-font-family-index || window-font-size-value != saved-window-font-size || scale-percent-value != saved-scale-percent;
+    private property <bool> dirty: colors-dirty || note-width != saved-note-width || note-height != saved-note-height || font-size-value != saved-font-size || theme-index != saved-theme-index || font-family-index != saved-font-family-index || appearance-index != saved-appearance-index || window-font-family-index != saved-window-font-family-index || window-font-size-value != saved-window-font-size || scale-percent-value != saved-scale-percent;
     callback apply(int, int, int, int, int, int, int, int, int);
     callback preferences-saved;
     preferences-saved => {
@@ -205,6 +225,21 @@ export component SettingsWindow inherits Window {
                             spacing: (12px * AppAppearance.ui-scale); Text { font-family: AppAppearance.font-family; text: "背景颜色"; color: AppAppearance.foreground; width: (96px * AppAppearance.ui-scale); }
                             ComboBox { min-width: (160px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); model: [AppAppearance.dark ? "黑色（白色主题）" : "白色", "黄色", "绿色", "粉色", "紫色", "蓝色", "灰色"]; current-index <=> root.theme-index; enabled: root.writable && root.pending-tab < 0; }
                         }
+                        Rectangle { height: (1px * AppAppearance.ui-scale); vertical-stretch: 0; background: AppAppearance.border; }
+                        ColorsEditor {
+                            color-slots: root.color-slots;
+                            enabled: root.writable && root.pending-tab < 0;
+                            color-mode: root.color-mode; color-slot: root.color-slot;
+                            color-red <=> root.color-red; color-green <=> root.color-green; color-blue <=> root.color-blue;
+                            color-hex <=> root.color-hex; color-error: root.color-error; color-warning: root.color-warning;
+                            color-preview-background: root.color-preview-background;
+                            color-preview-border: root.color-preview-border;
+                            color-preview-foreground: root.color-preview-foreground;
+                            select-color(mode, slot) => { if root.writable && root.pending-tab < 0 { root.select-color(mode, slot); } }
+                            edit-color-rgb(red, green, blue) => { if root.writable && root.pending-tab < 0 { root.edit-color-rgb(red, green, blue); } }
+                            edit-color-hex(hex) => { if root.writable && root.pending-tab < 0 { root.edit-color-hex(hex); } }
+                            reset-color(all) => { if root.writable && root.pending-tab < 0 { root.reset-color(all); } }
+                        }
                     }
                 }
                 if root.current-tab == 2: ScrollView {
@@ -235,7 +270,7 @@ export component SettingsWindow inherits Window {
             HorizontalLayout {
                 height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); spacing: (12px * AppAppearance.ui-scale);
                 Button { min-width: (96px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); text: "取消"; enabled: root.pending-tab < 0; clicked => { root.cancel-settings(); } }
-                Button { min-width: (96px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); text: "应用"; enabled: root.writable && root.pending-tab < 0; clicked => { root.attempted-save = true; root.apply(root.note-width, root.note-height, root.font-size-value, root.theme-index, root.font-family-index, root.appearance-index, root.window-font-family-index, root.window-font-size-value, root.scale-percent-value); } }
+                Button { min-width: (96px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); text: "应用"; enabled: root.writable && root.pending-tab < 0 && root.colors-valid; clicked => { if root.colors-valid { root.attempted-save = true; root.apply(root.note-width, root.note-height, root.font-size-value, root.theme-index, root.font-family-index, root.appearance-index, root.window-font-family-index, root.window-font-size-value, root.scale-percent-value); } } }
             }
         }
     }
@@ -248,9 +283,9 @@ export component SettingsWindow inherits Window {
     }
     if root.pending-tab >= 0: PreferencesPrompt {
         width: parent.width; height: parent.height;
-        status: root.attempted-save ? root.status : "";
-        writable: root.writable;
-        save => { root.attempted-save = true; root.apply(root.note-width, root.note-height, root.font-size-value, root.theme-index, root.font-family-index, root.appearance-index, root.window-font-family-index, root.window-font-size-value, root.scale-percent-value); }
+        status: !root.colors-valid ? root.color-error : root.attempted-save ? root.status : "";
+        writable: root.writable && root.colors-valid;
+        save => { if root.colors-valid { root.attempted-save = true; root.apply(root.note-width, root.note-height, root.font-size-value, root.theme-index, root.font-family-index, root.appearance-index, root.window-font-family-index, root.window-font-size-value, root.scale-percent-value); } }
         discard => { root.discard-changes(); }
         cancel => { root.pending-tab = -1; root.attempted-save = false; }
     }

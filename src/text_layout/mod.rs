@@ -6,6 +6,7 @@
 mod geometry;
 mod raster;
 mod resources;
+mod styling;
 
 use crate::editor::{EditorRow, Position};
 use cosmic_text::{Attrs, Buffer, Cursor, Family, Metrics, Shaping, Wrap};
@@ -14,6 +15,7 @@ use raster::{Canvas, EditorPalette, MAX_PIXEL_SIDE, MAX_PIXELS};
 pub use resources::TextResources;
 use slint::{Image, Rgba8Pixel, SharedPixelBuffer};
 use std::{borrow::Cow, cell::RefCell, rc::Rc};
+use styling::{preedit_bold, set_body_text};
 
 const PADDING: f32 = 14.0;
 const GUTTER: f32 = 38.0;
@@ -49,6 +51,7 @@ pub struct TextLayout {
     font_family: String,
     font_family_dirty: bool,
     dark: bool,
+    typing_bold: bool,
 }
 
 impl TextLayout {
@@ -63,6 +66,7 @@ impl TextLayout {
             font_family: String::new(),
             font_family_dirty: true,
             dark: false,
+            typing_bold: false,
         }
     }
 
@@ -70,6 +74,12 @@ impl TextLayout {
     /// The caller schedules a render after changing the application appearance.
     pub fn set_dark(&mut self, dark: bool) {
         self.dark = dark;
+    }
+
+    /// Apply the current input weight to temporary IME text only. Persistent
+    /// body ranges still come from the editor and are never modified here.
+    pub fn set_typing_bold(&mut self, bold: bool) {
+        self.typing_bold = bold;
     }
 
     /// Select the global editor family. Empty uses the system sans-serif family;
@@ -154,6 +164,7 @@ impl TextLayout {
                     left: 0.0,
                     source_len: 0,
                     preedit: None,
+                    bold: Vec::new(),
                 });
             }
             let layout = &mut self.rows[index];
@@ -161,10 +172,18 @@ impl TextLayout {
             let available =
                 (pixel_width as f32 - left - PADDING * self.scale).max(metrics.font_size);
             let mut text = Cow::Borrowed(row.text);
+            let mut bold = Cow::Borrowed(row.bold);
             layout.preedit = None;
             if index == selection.1.row && !preedit.is_empty() {
                 let offset = boundary(&text, selection.1.offset);
                 text.to_mut().insert_str(offset, preedit);
+                bold = Cow::Owned(preedit_bold(
+                    row.bold,
+                    &text,
+                    offset,
+                    preedit.len(),
+                    self.typing_bold,
+                ));
                 layout.preedit = Some((offset, preedit.len()));
             }
             // Release a formerly huge paragraph's retained text and glyph storage
@@ -191,9 +210,17 @@ impl TextLayout {
             let body_text_changed = new_row
                 || reset_body
                 || self.font_family_dirty
+                || layout.bold.as_slice() != bold.as_ref()
                 || !buffer_matches(&layout.body, &text);
             if body_text_changed {
-                layout.body.set_text(&text, &attrs, Shaping::Advanced, None);
+                set_body_text(&mut layout.body, &text, &bold, &attrs);
+                layout.bold.clear();
+                layout.bold.extend_from_slice(&bold);
+                if layout.bold.capacity() > 1024
+                    && layout.bold.capacity() > layout.bold.len().saturating_mul(4)
+                {
+                    layout.bold.shrink_to_fit();
+                }
             }
             let marker_text_changed =
                 new_row || self.font_family_dirty || !buffer_matches(&layout.marker, row.marker);

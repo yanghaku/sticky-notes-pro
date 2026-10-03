@@ -2,7 +2,9 @@
 
 mod appearance;
 mod clipboard;
+mod colors;
 mod dialogs;
+mod formatting;
 mod ime;
 mod input;
 mod list;
@@ -14,6 +16,7 @@ mod replies;
 mod settings;
 mod window_state;
 
+use colors::ColorDraft;
 use ime::ImeState;
 use window_state::{AuxiliaryWindowState, WindowSaveTimer};
 
@@ -33,8 +36,8 @@ use winit::{
 };
 
 use crate::{
-    AppAppearance, DiscardDialog, EmptyDeleteDialog, NoteCard, NoteWindow, NotesListWindow,
-    PermanentDeleteDialog, SettingsWindow,
+    AppAppearance, DiscardDialog, NoteCard, NoteWindow, NotesListWindow, PermanentDeleteDialog,
+    SettingsWindow,
     editor::Editor,
     instance::Instance,
     model::{Document, Note, THEMES},
@@ -49,7 +52,7 @@ use crate::{
 
 /// Editable text lives only in Editor; save jobs receive an owned snapshot.
 struct NoteMetadata {
-    id: String,
+    id: Option<String>,
     theme_id: String,
     created_at: i64,
     updated_at: i64,
@@ -58,12 +61,9 @@ struct NoteMetadata {
 
 struct Panel {
     ui: NoteWindow,
+    /// Metadata is absent only for damaged, read-only notes; drafts have no ID yet.
     note: Option<NoteMetadata>,
     persisted: bool,
-    last_nonempty: Option<Document>,
-    was_empty: bool,
-    confirming_empty: bool,
-    empty_confirmed: bool,
     editor: Option<Editor>,
     fallback: String,
     state: WindowState,
@@ -103,11 +103,12 @@ struct App {
     settings_writable: bool,
     settings_warning: Option<String>,
     dark: Option<bool>,
+    /// Runtime window keys remain stable when a draft receives its persisted ID.
     notes: HashMap<String, Panel>,
     list: Option<NotesListWindow>,
     settings_ui: Option<SettingsWindow>,
+    color_draft: Option<ColorDraft>,
     discard: Option<DiscardDialog>,
-    empty_dialog: Option<(String, EmptyDeleteDialog)>,
     permanent_dialog: Option<(String, PermanentDeleteDialog)>,
     font_families: Vec<String>,
     text_resources: Rc<RefCell<TextResources>>,
@@ -151,8 +152,8 @@ pub fn run() -> Result<()> {
         notes: HashMap::new(),
         list: None,
         settings_ui: None,
+        color_draft: None,
         discard: None,
-        empty_dialog: None,
         permanent_dialog: None,
         font_families,
         text_resources,
@@ -214,6 +215,21 @@ fn dispatch(weak: &Weak<RefCell<App>>, f: impl FnOnce(&mut App, &Rc<RefCell<App>
 }
 
 impl App {
+    fn window_for_note(&self, note_id: &str) -> Option<&str> {
+        self.notes.iter().find_map(|(key, panel)| {
+            (panel.state.note_id.as_deref() == Some(note_id)).then_some(key.as_str())
+        })
+    }
+
+    fn reply_window(&self, id: &str) -> Option<String> {
+        if self.notes.contains_key(id) {
+            Some(id.to_owned())
+        } else {
+            self.window_for_note(id.strip_prefix("note:").unwrap_or(id))
+                .map(str::to_owned)
+        }
+    }
+
     fn report(&self, message: &str) {
         eprintln!("{message}");
         if let Some(list) = &self.list {
@@ -226,6 +242,9 @@ impl App {
     fn remove_note(&mut self, id: &str) -> Result<()> {
         self.pending_notes.remove(id);
         if let Some(panel) = self.notes.remove(id) {
+            if let Some(note_id) = &panel.state.note_id {
+                self.pending_notes.remove(note_id);
+            }
             panel.ui.hide()?;
         }
         self.list_dirty = true;

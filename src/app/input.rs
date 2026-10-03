@@ -72,7 +72,7 @@ impl App {
                             panel.render_dirty = true;
                             panel.follow_caret = true;
                         }
-                        if panel.destructive_queued || panel.discarding || panel.confirming_empty {
+                        if panel.destructive_queued || panel.discarding {
                             // Destructive snapshots are immutable once queued. Composition
                             // was finished/cancelled before freezing, so late native events
                             // cannot mutate a deleted or discarded document.
@@ -152,6 +152,11 @@ impl App {
                 NoteShortcut::NotesList => self.open_list(shared)?,
                 NoteShortcut::Settings => self.open_settings(shared)?,
                 NoteShortcut::Close => self.request_close(id, SaveAction::Close)?,
+                NoteShortcut::ToggleBold => {
+                    if panel.ui.get_editor_focused() {
+                        self.toggle_bold(id)?;
+                    }
+                }
                 NoteShortcut::Save => {
                     if let Some(panel) = self.notes.get_mut(id)
                         && panel.editor.is_some()

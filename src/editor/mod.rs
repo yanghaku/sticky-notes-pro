@@ -2,8 +2,9 @@
 
 use std::{collections::VecDeque, time::Instant};
 
-use crate::model::{Block, Document};
+use crate::model::{Block, BoldRange, Document};
 
+mod formatting;
 mod history;
 mod input;
 mod navigation;
@@ -25,6 +26,7 @@ pub struct Position {
 pub struct EditorRow<'a> {
     pub text: &'a str,
     pub marker: &'a str,
+    pub bold: &'a [BoldRange],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,6 +51,7 @@ impl Kind {
 
 struct Unit {
     text: String,
+    bold: Vec<BoldRange>,
     kind: Kind,
 }
 
@@ -58,6 +61,7 @@ struct Snapshot {
     anchor: Position,
     focus: Position,
     bytes: usize,
+    typing_bold: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -74,18 +78,19 @@ pub struct Editor {
     undo: VecDeque<Snapshot>,
     redo: Vec<Snapshot>,
     typing: Option<(Instant, Position)>,
+    typing_bold: bool,
     revision: u64,
     row_locations: Vec<RowLocation>,
     row_markers: Vec<String>,
     nonempty_rows: usize,
     history_bytes: usize,
-    empty_recovery: Option<Document>,
 }
 
 impl Editor {
     pub fn new(mut document: Document) -> Self {
         // Database parsing validates first. Normalization also makes an empty
         // in-memory document safe to edit without losing unknown formats.
+        document.normalize_bold();
         let empty = document.is_empty();
         document
             .blocks
@@ -93,6 +98,7 @@ impl Editor {
         if document.blocks.is_empty() {
             document.blocks.push(Block::Paragraph {
                 text: String::new(),
+                bold: Vec::new(),
             });
         }
         let mut editor = Self {
@@ -102,14 +108,15 @@ impl Editor {
             undo: VecDeque::new(),
             redo: Vec::new(),
             typing: None,
+            typing_bold: false,
             revision: 0,
             row_locations: Vec::new(),
             row_markers: Vec::new(),
             nonempty_rows: 0,
             history_bytes: 0,
-            empty_recovery: None,
         };
         editor.index_rows();
+        editor.refresh_typing_bold();
         debug_assert_eq!(editor.is_empty(), empty);
         editor
     }
@@ -120,33 +127,6 @@ impl Editor {
 
     pub fn revision(&self) -> u64 {
         self.revision
-    }
-
-    /// Transfer the exact pre-clear state, including unsaved edits, to its owner.
-    /// Captured only at a nonempty-to-empty transition, not on ordinary typing.
-    pub fn take_empty_recovery(&mut self) -> Option<Document> {
-        self.empty_recovery.take()
-    }
-
-    /// Recovery content must never outlive the empty document it describes.
-    pub(super) fn clear_empty_recovery(&mut self) {
-        if !self.is_empty() {
-            self.empty_recovery = None;
-        }
-    }
-
-    /// Record the transition into an empty document. `previous` is only built
-    /// when it will actually be kept, so undo and redo avoid a needless copy.
-    pub(super) fn track_empty_recovery(
-        &mut self,
-        was_nonempty: bool,
-        previous: impl FnOnce() -> Document,
-    ) {
-        if !self.is_empty() {
-            self.clear_empty_recovery();
-        } else if was_nonempty {
-            self.empty_recovery = Some(previous());
-        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -163,15 +143,25 @@ impl Editor {
             .map(|(location, marker)| EditorRow {
                 text: self.row_text_at(location),
                 marker,
+                bold: self.row_bold_at(location),
             })
             .collect()
     }
 
     fn row_text_at(&self, location: &RowLocation) -> &str {
         match &self.document.blocks[location.block] {
-            Block::Paragraph { text } => text,
+            Block::Paragraph { text, .. } => text,
             Block::OrderedList { items, .. } | Block::BulletList { items } => {
                 &items[location.item.expect("list rows have an item")].text
+            }
+        }
+    }
+
+    fn row_bold_at(&self, location: &RowLocation) -> &[BoldRange] {
+        match &self.document.blocks[location.block] {
+            Block::Paragraph { bold, .. } => bold,
+            Block::OrderedList { items, .. } | Block::BulletList { items } => {
+                &items[location.item.expect("list rows have an item")].bold
             }
         }
     }

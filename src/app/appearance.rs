@@ -12,6 +12,11 @@ impl App {
         appearance.set_font_family(self.settings.window_font.font_family.as_str().into());
         appearance.set_font_size(self.settings.window_font.font_size as f32);
         appearance.set_scale_percent(i32::from(self.settings.scale_percent));
+        let colors = &self.settings.note.colors;
+        appearance.set_light_note_colors(colors::palette_model(&colors.light));
+        appearance.set_dark_note_colors(colors::palette_model(&colors.dark));
+        appearance.set_light_note_border(colors::ui_color(colors.light.border));
+        appearance.set_dark_note_border(colors::ui_color(colors.dark.border));
     }
 
     pub(super) fn apply_appearance(&mut self) {
@@ -25,9 +30,6 @@ impl App {
             self.configure_appearance(ui);
         }
         if let Some(ui) = &self.discard {
-            self.configure_appearance(ui);
-        }
-        if let Some((_, ui)) = &self.empty_dialog {
             self.configure_appearance(ui);
         }
         if let Some((_, ui)) = &self.permanent_dialog {

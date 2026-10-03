@@ -34,9 +34,9 @@ pub enum Job {
     CloseWindow {
         state: WindowState,
     },
-    CloseEmpty {
+    CloseDraft {
+        /// Runtime window identity used only to route the completion reply.
         id: String,
-        state: WindowState,
     },
     SaveWindow {
         state: WindowState,
@@ -72,7 +72,7 @@ impl Job {
                     SaveAction::Delete => ReplyKind::Delete,
                 },
             ),
-            Job::CloseEmpty { id, .. } => (id.clone(), 0, ReplyKind::EmptyClosed),
+            Job::CloseDraft { id } => (id.clone(), 0, ReplyKind::DraftClosed),
             Job::CloseWindow { state } => (state.id.clone(), 0, ReplyKind::Window),
             Job::SaveWindow { state } => (state.id.clone(), 0, ReplyKind::WindowSaved),
             Job::Delete { id, .. } => (id.clone(), 0, ReplyKind::Delete),
@@ -90,7 +90,7 @@ pub enum ReplyKind {
     Restore,
     Window,
     WindowSaved,
-    EmptyClosed,
+    DraftClosed,
     Purge,
 }
 
@@ -226,9 +226,8 @@ fn process_job(
             let result = save(repository, &note, state.as_ref(), action, create);
             reply(id, revision, kind, result)
         }
-        Job::CloseEmpty { mut state, .. } => {
-            clock.window(&mut state);
-            let result = repository.close_empty(&id, &state).map(|()| None);
+        Job::CloseDraft { .. } => {
+            let result = repository.close_draft().map(|()| None);
             reply(id, revision, kind, result)
         }
         Job::CloseWindow { mut state } => {

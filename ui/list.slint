@@ -1,11 +1,12 @@
 import { Button, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
 import { AppAppearance, NoteCard } from "appearance.slint";
-import { ColoredAction, DeleteButton } from "controls.slint";
+import { ColoredAction, DeleteButton, ViewTab } from "controls.slint";
 
 export component NotesListWindow inherits Window {
     default-font-family: AppAppearance.font-family;
     default-font-size: (14px * AppAppearance.ui-scale) * AppAppearance.font-scale;
-    title: "便签列表 · Sticky Notes Pro";
+    title: (root.deleted-view ? "已删除便签" : "便签列表") + " · Sticky Notes Pro";
+    icon: @image-url("../asserts/icon.png");
     preferred-width: (620px * AppAppearance.ui-scale);
     preferred-height: (520px * AppAppearance.ui-scale);
     min-width: 280px;
@@ -27,9 +28,10 @@ export component NotesListWindow inherits Window {
         VerticalBox {
             padding: (16px * AppAppearance.ui-scale);
             spacing: (12px * AppAppearance.ui-scale);
-            Text { font-family: AppAppearance.font-family; text: root.deleted-view ? "已删除" : "便签"; font-size: (22px * AppAppearance.ui-scale) * AppAppearance.font-scale; color: AppAppearance.foreground; }
             HorizontalBox {
-                Button { min-width: (96px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); text: root.deleted-view ? "返回便签" : "已删除"; clicked => { root.change-view(!root.deleted-view); } }
+                ViewTab { text: "便签"; active: !root.deleted-view; clicked => { if root.deleted-view { root.change-view(false); } } }
+                ViewTab { text: "已删除"; active: root.deleted-view; clicked => { if !root.deleted-view { root.change-view(true); } } }
+                Rectangle { horizontal-stretch: 1; }
                 Button { min-width: (96px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); text: "设置"; clicked => { root.settings(); } }
                 Button { min-width: (96px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); text: "+ 新建"; clicked => { root.new-note(); } }
             }
@@ -39,13 +41,15 @@ export component NotesListWindow inherits Window {
                 viewport-width: self.visible-width;
                 horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
                 VerticalLayout {
-                    spacing: (10px * AppAppearance.ui-scale);
+                    alignment: start;
+                    spacing: (8px * AppAppearance.ui-scale);
                     for card in root.cards: Rectangle {
-                        min-height: (root.deleted-view ? (216px * AppAppearance.ui-scale) : (180px * AppAppearance.ui-scale)) * max(1, AppAppearance.font-scale);
+                        min-height: (root.deleted-view ? (164px * AppAppearance.ui-scale) : (136px * AppAppearance.ui-scale)) * max(1, AppAppearance.font-scale);
+                        vertical-stretch: 0;
                         background: AppAppearance.note-color(card.theme-id);
                         border-radius: (10px * AppAppearance.ui-scale);
                         HorizontalLayout {
-                            padding: (12px * AppAppearance.ui-scale); spacing: (12px * AppAppearance.ui-scale);
+                            padding: (10px * AppAppearance.ui-scale); spacing: (12px * AppAppearance.ui-scale);
                             Rectangle {
                                 horizontal-stretch: 1;
                                 Text {
@@ -59,10 +63,10 @@ export component NotesListWindow inherits Window {
                                 TouchArea { enabled: !root.deleted-view && !card.busy; clicked => { root.open-note(card.id); } }
                             }
                             VerticalLayout {
-                                width: (160px * AppAppearance.ui-scale) * max(1, AppAppearance.font-scale); horizontal-stretch: 0; spacing: (6px * AppAppearance.ui-scale);
+                                width: (160px * AppAppearance.ui-scale) * max(1, AppAppearance.font-scale); horizontal-stretch: 0; spacing: (4px * AppAppearance.ui-scale);
                                 Text {
                                     font-family: AppAppearance.font-family;
-                                    height: (34px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+                                    height: (30px * AppAppearance.ui-scale) * AppAppearance.font-scale;
                                     vertical-stretch: 0; width: parent.width;
                                     text: "创建时间\n" + card.created-at;
                                     horizontal-alignment: left; vertical-alignment: top;
@@ -71,7 +75,7 @@ export component NotesListWindow inherits Window {
                                 }
                                 Text {
                                     font-family: AppAppearance.font-family;
-                                    height: (34px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+                                    height: (30px * AppAppearance.ui-scale) * AppAppearance.font-scale;
                                     vertical-stretch: 0; width: parent.width;
                                     text: "最后修改时间\n" + card.updated-at;
                                     horizontal-alignment: left; vertical-alignment: top;

@@ -3,6 +3,9 @@
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 
+pub(crate) mod bold;
+pub use bold::BoldRange;
+
 pub const DOCUMENT_FORMAT_VERSION: u32 = 1;
 
 /// Note colors, in the order the settings panel lists them. Storage validation
@@ -21,6 +24,8 @@ pub struct Document {
 pub enum Block {
     Paragraph {
         text: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        bold: Vec<BoldRange>,
     },
     OrderedList {
         items: Vec<ListItem>,
@@ -37,6 +42,8 @@ pub enum Block {
 #[serde(deny_unknown_fields)]
 pub struct ListItem {
     pub text: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bold: Vec<BoldRange>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,6 +62,7 @@ impl Default for Document {
             format_version: DOCUMENT_FORMAT_VERSION,
             blocks: vec![Block::Paragraph {
                 text: String::new(),
+                bold: Vec::new(),
             }],
         }
     }
@@ -63,9 +71,24 @@ impl Default for Document {
 impl Document {
     /// Decode supported content without silently replacing corrupt data.
     pub fn from_json(json: &str) -> Result<Self> {
-        let document: Self = serde_json::from_str(json).context("invalid document JSON")?;
+        let mut document: Self = serde_json::from_str(json).context("invalid document JSON")?;
         document.validate()?;
+        document.normalize_bold();
         Ok(document)
+    }
+
+    /// Accept old v1 character-aligned ranges without retaining partial graphemes.
+    pub(crate) fn normalize_bold(&mut self) {
+        for block in &mut self.blocks {
+            match block {
+                Block::Paragraph { text, bold: ranges } => bold::normalize(text, ranges),
+                Block::OrderedList { items, .. } | Block::BulletList { items } => {
+                    for item in items {
+                        bold::normalize(&item.text, &mut item.bold);
+                    }
+                }
+            }
+        }
     }
 
     pub fn validate(&self) -> Result<()> {
@@ -78,7 +101,10 @@ impl Document {
         let mut has_ordered_list = false;
         for block in &self.blocks {
             match block {
-                Block::Paragraph { text } => validate_text(text)?,
+                Block::Paragraph { text, bold } => {
+                    validate_text(text)?;
+                    bold::validate(text, bold)?;
+                }
                 Block::OrderedList {
                     items,
                     continuation,
@@ -91,6 +117,7 @@ impl Document {
                     ensure!(!items.is_empty(), "list must contain an item");
                     for item in items {
                         validate_text(&item.text)?;
+                        bold::validate(&item.text, &item.bold)?;
                     }
                 }
                 Block::BulletList { items } => {
@@ -98,6 +125,7 @@ impl Document {
                     ensure!(!items.is_empty(), "list must contain an item");
                     for item in items {
                         validate_text(&item.text)?;
+                        bold::validate(&item.text, &item.bold)?;
                     }
                 }
             }
@@ -163,7 +191,7 @@ impl Document {
     /// Generated markers and whitespace alone do not make a note nonempty.
     pub fn is_empty(&self) -> bool {
         self.blocks.iter().all(|block| match block {
-            Block::Paragraph { text } => text.trim().is_empty(),
+            Block::Paragraph { text, .. } => text.trim().is_empty(),
             Block::OrderedList { items, .. } | Block::BulletList { items } => {
                 items.iter().all(|item| item.text.trim().is_empty())
             }
@@ -203,7 +231,7 @@ impl Document {
                 }
                 let block = blocks.next()?;
                 match block {
-                    Block::Paragraph { text } => return Some((text.as_str(), String::new())),
+                    Block::Paragraph { text, .. } => return Some((text.as_str(), String::new())),
                     Block::OrderedList {
                         items: list_items,
                         continuation,
@@ -231,11 +259,18 @@ impl Document {
                 total
                     .saturating_add(std::mem::size_of::<Block>())
                     .saturating_add(match block {
-                        Block::Paragraph { text } => text.len(),
+                        Block::Paragraph { text, bold } => text.len().saturating_add(
+                            bold.len().saturating_mul(std::mem::size_of::<BoldRange>()),
+                        ),
                         Block::OrderedList { items, .. } | Block::BulletList { items } => {
                             items.iter().fold(0usize, |size, item| {
                                 size.saturating_add(std::mem::size_of::<ListItem>())
                                     .saturating_add(item.text.len())
+                                    .saturating_add(
+                                        item.bold
+                                            .len()
+                                            .saturating_mul(std::mem::size_of::<BoldRange>()),
+                                    )
                             })
                         }
                     })

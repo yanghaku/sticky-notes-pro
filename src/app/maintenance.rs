@@ -10,7 +10,6 @@ impl App {
             self.open_list(shared)?;
         }
         let now = Instant::now();
-        let mut empty_requests = Vec::new();
         if let Some(state) = self.restore_list.take()
             && let Some(ui) = &self.list
         {
@@ -28,7 +27,7 @@ impl App {
             }
         }
         self.maintain_auxiliary_windows(now)?;
-        for panel in self.notes.values_mut() {
+        for (window_id, panel) in &mut self.notes {
             if !panel.restored && panel.ui.window().has_winit_window() {
                 panel.update_window_limits(panel.state.monitor_id.as_deref());
                 platform::restore(panel.ui.window(), &panel.state);
@@ -67,8 +66,7 @@ impl App {
             let content_blocked = panel.in_flight
                 || panel.waiting_ime
                 || !panel.preedit.is_empty()
-                || panel.discarding
-                || panel.confirming_empty;
+                || panel.discarding;
             let autosave = panel.dirty_since.is_some()
                 && (now.duration_since(panel.last_edit) >= Duration::from_millis(400)
                     || now.duration_since(panel.last_submit) >= Duration::from_secs(2));
@@ -80,7 +78,6 @@ impl App {
                 && panel.pending_action.is_none()
                 && !panel.destructive_queued
                 && !panel.discarding
-                && !panel.confirming_empty
                 && (!autosave || content_blocked)
                 && panel.state_save_timer.ready(panel.state_dirty, now)
             {
@@ -109,13 +106,8 @@ impl App {
                 .editor
                 .as_ref()
                 .is_some_and(|editor| editor.is_empty());
-            if empty && panel.persisted && !panel.empty_confirmed {
-                if let Some(id) = &panel.state.note_id {
-                    empty_requests.push(id.clone());
-                }
-                continue;
-            }
-            if empty && action == SaveAction::Save {
+            if empty && !panel.persisted && action == SaveAction::Save {
+                panel.clear_draft_identity();
                 panel.dirty_since = None;
                 panel.ui.set_status("".into());
                 if let Some(id) = &panel.state.note_id {
@@ -124,34 +116,13 @@ impl App {
                 self.list_dirty = true;
                 continue;
             }
-            let job = if empty
-                && panel.persisted
-                && panel.empty_confirmed
-                && panel.last_nonempty.is_some()
-            {
-                let note = panel.save_snapshot(
-                    panel
-                        .last_nonempty
-                        .clone()
-                        .context("cleared note has no prior content")?,
-                )?;
-                Job::Save {
-                    note,
-                    state: Some(panel.state.clone()),
-                    revision: panel.revision,
-                    action: SaveAction::Delete,
-                    create: false,
-                }
-            } else if empty {
-                Job::CloseEmpty {
-                    id: panel
-                        .state
-                        .note_id
-                        .clone()
-                        .context("note window has no id")?,
-                    state: panel.state.clone(),
+            let job = if empty && !panel.persisted {
+                panel.clear_draft_identity();
+                Job::CloseDraft {
+                    id: window_id.clone(),
                 }
             } else if panel.note.is_some() {
+                panel.ensure_note_identity();
                 let document = panel
                     .editor
                     .as_ref()
@@ -182,7 +153,8 @@ impl App {
             match self.worker.submit(job) {
                 Ok(()) => {
                     panel.in_flight = true;
-                    panel.destructive_queued = empty || action == SaveAction::Delete;
+                    panel.destructive_queued =
+                        (empty && !panel.persisted) || action == SaveAction::Delete;
                     panel.last_submit = now;
                     panel.state_dirty = None;
                     panel.state_save_timer.submitted();
@@ -209,9 +181,6 @@ impl App {
                 }
             }
         }
-        if let Some(id) = empty_requests.first() {
-            self.confirm_empty_delete(shared, id)?;
-        }
         if self.list_dirty && (self.list_reload || now >= self.list_next_refresh) {
             self.refresh_list()?;
         }
@@ -220,6 +189,32 @@ impl App {
 }
 
 impl Panel {
+    /// Allocate an ID only for a nonempty first save, never when opening a draft.
+    fn ensure_note_identity(&mut self) {
+        if let Some(note) = &mut self.note
+            && note.id.is_none()
+        {
+            let id = uuid::Uuid::new_v4().to_string();
+            note.created_at = now_millis();
+            note.updated_at = note.updated_at.max(note.created_at);
+            self.state.id = format!("note:{id}");
+            self.state.window_type = "note".to_owned();
+            self.state.note_id = Some(id.clone());
+            note.id = Some(id);
+        }
+    }
+
+    pub(super) fn clear_draft_identity(&mut self) {
+        if !self.persisted {
+            if let Some(note) = &mut self.note {
+                note.id = None;
+            }
+            self.state.id = "draft".to_owned();
+            self.state.window_type = "draft".to_owned();
+            self.state.note_id = None;
+        }
+    }
+
     pub(super) fn retry_window_state(&mut self, now: Instant) {
         self.state_dirty.get_or_insert(now);
         self.state_save_timer.failed(now);
@@ -231,7 +226,7 @@ impl Panel {
             .as_ref()
             .context("editable note has no snapshot")?;
         Ok(Note {
-            id: note.id.clone(),
+            id: note.id.clone().context("draft has no persisted note id")?,
             document,
             theme_id: note.theme_id.clone(),
             created_at: note.created_at,

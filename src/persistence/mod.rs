@@ -1,11 +1,13 @@
 //! Local SQLite storage, atomic preferences, and per-window application state.
 
+mod colors;
 mod paths;
 mod repository;
 mod schema;
 mod settings;
 mod windows;
 
+pub use colors::{NoteColors, NotePalette, Rgb};
 pub use paths::Paths;
 pub use repository::{Repository, StoredNote};
 pub use settings::{AppearanceMode, Settings};

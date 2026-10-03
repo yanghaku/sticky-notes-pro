@@ -6,6 +6,7 @@ export component NoteWindow inherits Window {
     default-font-family: AppAppearance.font-family;
     default-font-size: (14px * AppAppearance.ui-scale) * AppAppearance.font-scale;
     title: "Sticky Notes Pro";
+    icon: @image-url("../asserts/icon.png");
     preferred-width: (360px * AppAppearance.ui-scale);
     preferred-height: (420px * AppAppearance.ui-scale);
     in property <length> available-width: 320px;
@@ -22,6 +23,8 @@ export component NoteWindow inherits Window {
     in-out property <bool> pinned: false;
     in-out property <bool> frozen: false;
     in-out property <bool> readonly: false;
+    in property <bool> bold-active: false;
+    in property <bool> composing: false;
     in-out property <string> readonly-text;
     in-out property <string> editor-font-family;
     in-out property <float> editor-font-size: 16;
@@ -41,6 +44,8 @@ export component NoteWindow inherits Window {
     callback pin;
     callback open-list;
     callback open-settings;
+    callback new-note;
+    callback toggle-bold;
     callback choose-theme(string);
     callback close-note;
     callback retry;
@@ -50,6 +55,14 @@ export component NoteWindow inherits Window {
     callback wheel(float);
     always-on-top: root.pinned && root.pin-supported;
     background: root.note-background;
+
+    Rectangle {
+        width: root.width;
+        height: root.height;
+        background: transparent;
+        border-width: root.maximized ? 0px : 3px;
+        border-color: AppAppearance.note-window-border;
+    }
 
     Rectangle {
         x: (6px * AppAppearance.ui-scale); y: (6px * AppAppearance.ui-scale); height: (34px * AppAppearance.ui-scale); width: parent.width - (12px * AppAppearance.ui-scale);
@@ -67,6 +80,8 @@ export component NoteWindow inherits Window {
                     double-clicked => { root.maximized = !root.maximized; }
                 }
             }
+            Tool { icon: @image-url("icons/bold.svg"); description: "加粗"; active: root.bold-active; available: !root.readonly && !root.frozen && !root.composing && root.error == ""; clicked => { root.toggle-bold(); } }
+            Tool { icon: @image-url("icons/plus.svg"); description: "新建便签"; clicked => { root.new-note(); } }
             Tool { icon: @image-url("icons/pin.svg"); description: !root.pin-supported ? "当前桌面不支持置顶" : root.pinned ? "取消置顶" : "置顶便签"; active: root.pinned; available: root.pin-supported; clicked => { root.pin(); } }
             Tool { icon: @image-url("icons/menu.svg"); description: "菜单"; active: root.menu-open; clicked => { if root.menu-open { note-menu.close(); } else { note-menu.show(); } } }
             Tool { icon: @image-url("icons/minimize.svg"); description: "最小化"; clicked => { root.minimized = true; } }

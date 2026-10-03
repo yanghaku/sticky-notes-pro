@@ -12,6 +12,7 @@ pub enum NoteShortcut {
     Save,
     Close,
     TogglePin,
+    ToggleBold,
 }
 
 struct Binding {
@@ -21,7 +22,13 @@ struct Binding {
     shift: bool,
 }
 
-const NOTE_BINDINGS: [Binding; 6] = [
+const NOTE_BINDINGS: [Binding; 7] = [
+    Binding {
+        action: NoteShortcut::ToggleBold,
+        label: "加粗 / 取消加粗",
+        key: "B",
+        shift: false,
+    },
     Binding {
         action: NoteShortcut::NewNote,
         label: "新建便签",
@@ -93,16 +100,22 @@ pub fn descriptions() -> Vec<ShortcutEntry> {
     };
     let mut entries = Vec::new();
     entries.push(entry("便签窗口", "", true));
-    entries.extend(NOTE_BINDINGS.iter().map(|binding| {
-        let keys = format!(
-            "{primary}+{}{key}",
-            if binding.shift { "Shift+" } else { "" },
-            key = binding.key
-        );
-        entry(binding.label, &keys, false)
-    }));
+    entries.extend(
+        NOTE_BINDINGS
+            .iter()
+            .filter(|binding| binding.action != NoteShortcut::ToggleBold)
+            .map(|binding| {
+                let keys = format!(
+                    "{primary}+{}{key}",
+                    if binding.shift { "Shift+" } else { "" },
+                    key = binding.key
+                );
+                entry(binding.label, &keys, false)
+            }),
+    );
     entries.push(entry("编辑", "", true));
     for (label, keys) in [
+        ("加粗 / 取消加粗", "B"),
         ("复制", "C"),
         ("剪切", "X"),
         ("粘贴纯文本", "V"),

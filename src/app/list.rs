@@ -55,8 +55,8 @@ impl App {
                 if app.pending_notes.contains(id.as_str()) {
                     return Ok(());
                 }
-                if app.notes.contains_key(id.as_str()) {
-                    app.request_close(id.as_str(), SaveAction::Delete)?;
+                if let Some(key) = app.window_for_note(id.as_str()).map(str::to_owned) {
+                    app.request_close(&key, SaveAction::Delete)?;
                 } else {
                     app.worker
                         .submit(Job::Delete {
@@ -191,7 +191,12 @@ impl App {
             self.list_reload = false;
         } else {
             for id in &self.list_dirty_rows {
-                if let Some(&row) = self.list_rows.get(id)
+                let note_id = self
+                    .notes
+                    .get(id)
+                    .and_then(|panel| panel.state.note_id.as_ref())
+                    .unwrap_or(id);
+                if let Some(&row) = self.list_rows.get(note_id)
                     && let Some(old) = self.list_cards.row_data(row)
                 {
                     let card = self.overlay_card(old.clone(), deleted);
@@ -211,8 +216,8 @@ impl App {
         card.busy = self.pending_notes.contains(card.id.as_str());
         if !deleted
             && let Some(panel) = self
-                .notes
-                .get(card.id.as_str())
+                .window_for_note(card.id.as_str())
+                .and_then(|key| self.notes.get(key))
                 .filter(|panel| panel.persisted)
         {
             card.preview = preview_label(panel.editor.as_ref().map_or_else(

@@ -5,9 +5,10 @@ use super::*;
 impl App {
     pub(super) fn process_replies(&mut self) -> Result<()> {
         while let Some(reply) = self.worker.poll() {
+            let window_key = self.reply_window(&reply.id);
             if matches!(
                 reply.kind,
-                ReplyKind::Delete | ReplyKind::Restore | ReplyKind::EmptyClosed | ReplyKind::Purge
+                ReplyKind::Delete | ReplyKind::Restore | ReplyKind::DraftClosed | ReplyKind::Purge
             ) {
                 self.pending_notes.remove(&reply.id);
             }
@@ -17,7 +18,7 @@ impl App {
                 // The warning belongs to one window: only that surface changes,
                 // so another note's status or a real error is never overwritten.
                 let note = reply.id.strip_prefix("note:").unwrap_or(&reply.id);
-                if let Some(panel) = self.notes.get_mut(note) {
+                if let Some(panel) = window_key.as_ref().and_then(|key| self.notes.get_mut(key)) {
                     if reply.kind == ReplyKind::Save {
                         panel.retry_window_state(Instant::now());
                     }
@@ -39,7 +40,8 @@ impl App {
             match reply.result {
                 Ok(()) => match reply.kind {
                     ReplyKind::Close => {
-                        if let Some(panel) = self.notes.get_mut(&reply.id)
+                        if let Some(panel) =
+                            window_key.as_ref().and_then(|key| self.notes.get_mut(key))
                             && panel.revision != reply.revision
                         {
                             // A late IME commit must be flushed before releasing the window.
@@ -49,16 +51,16 @@ impl App {
                             panel.saved_revision = reply.revision;
                             panel.pending_action = Some(SaveAction::Close);
                         } else {
-                            self.remove_note(&reply.id)?;
+                            self.remove_note(window_key.as_deref().unwrap_or(&reply.id))?;
                         }
                     }
                     ReplyKind::Delete => {
-                        self.remove_note(&reply.id)?;
+                        self.remove_note(window_key.as_deref().unwrap_or(&reply.id))?;
                         self.list_dirty = true;
                         self.list_reload = true;
                     }
-                    ReplyKind::EmptyClosed => {
-                        self.remove_note(&reply.id)?;
+                    ReplyKind::DraftClosed => {
+                        self.remove_note(window_key.as_deref().unwrap_or(&reply.id))?;
                         self.list_dirty = true;
                         self.list_reload = true;
                     }
@@ -80,7 +82,9 @@ impl App {
                         self.check_exit()?;
                     }
                     ReplyKind::Save => {
-                        if let Some(panel) = self.notes.get_mut(&reply.id) {
+                        if let Some(panel) =
+                            window_key.as_ref().and_then(|key| self.notes.get_mut(key))
+                        {
                             panel.in_flight = false;
                             panel.destructive_queued = false;
                             self.list_reload |= !panel.persisted;
@@ -95,11 +99,19 @@ impl App {
                         }
                     }
                     ReplyKind::Window => {
-                        if let Some(id) = reply.id.strip_prefix("note:") {
-                            if self.notes.get(id).is_some_and(|p| {
-                                p.discarding || (p.pending_action.is_some() && p.note.is_none())
-                            }) {
-                                self.remove_note(id)?;
+                        if reply.id.starts_with("note:") {
+                            if window_key
+                                .as_ref()
+                                .and_then(|key| self.notes.get(key))
+                                .is_some_and(|p| {
+                                    p.discarding || (p.pending_action.is_some() && p.note.is_none())
+                                })
+                            {
+                                self.remove_note(
+                                    window_key
+                                        .as_deref()
+                                        .context("closing note has no window")?,
+                                )?;
                             }
                         } else if reply.id == "notes_list" {
                             self.list_state = None;
@@ -114,6 +126,7 @@ impl App {
                             self.check_exit()?;
                         } else if reply.id == "settings" {
                             self.settings_state = None;
+                            self.color_draft = None;
                             if let Some(ui) = self.settings_ui.take() {
                                 ui.hide()?;
                             }
@@ -122,10 +135,8 @@ impl App {
                         }
                     }
                     ReplyKind::WindowSaved => {
-                        if let Some(panel) = reply
-                            .id
-                            .strip_prefix("note:")
-                            .and_then(|id| self.notes.get_mut(id))
+                        if let Some(panel) =
+                            window_key.as_ref().and_then(|key| self.notes.get_mut(key))
                         {
                             panel.state_in_flight = false;
                             if let Some(message) = panel.state_failure_status.take()
@@ -211,7 +222,8 @@ impl App {
                         continue;
                     }
                     let id = reply.id.strip_prefix("note:").unwrap_or(&reply.id);
-                    if let Some(panel) = self.notes.get_mut(id) {
+                    if let Some(panel) = window_key.as_ref().and_then(|key| self.notes.get_mut(key))
+                    {
                         if reply.kind == ReplyKind::WindowSaved {
                             panel.state_in_flight = false;
                             panel.retry_window_state(Instant::now());
@@ -227,14 +239,17 @@ impl App {
                         panel.retry_window_state(Instant::now());
                         panel.destructive_queued = false;
                         panel.pending_action = None;
+                        panel.discarding = false;
                         self.pending_notes.remove(id);
-                        panel.empty_confirmed = false;
                         panel.waiting_ime = false;
                         panel.ime_wait_started = None;
                         panel.ui.set_frozen(false);
                         panel.ui.set_error(error.as_str().into());
                         panel.ui.set_status("保存失败".into());
                         panel.dirty_since = None;
+                        if !panel.persisted && panel.editor.as_ref().is_some_and(Editor::is_empty) {
+                            panel.clear_draft_identity();
+                        }
                         panel.set_ime_enabled(panel.editor.is_some());
                     } else {
                         self.report(&error);

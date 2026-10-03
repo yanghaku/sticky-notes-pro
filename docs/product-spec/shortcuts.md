@@ -25,6 +25,7 @@
 |---|---|
 | 复制 / 剪切 / 粘贴纯文本 | Ctrl+C / Ctrl+X / Ctrl+V |
 | 全选 | Ctrl+A |
+| 切换选区加粗 / 后续输入加粗 | Ctrl+B |
 | 撤销 | Ctrl+Z |
 | 重做 | Ctrl+Shift+Z；Windows / Linux 另支持 Ctrl+Y |
 | 移动光标 / 扩展选区 | 方向键 / Shift+方向键 |

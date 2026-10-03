@@ -1,11 +1,12 @@
 import { Button, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
 import { AppAppearance } from "appearance.slint";
-import { ColoredAction, DeleteButton } from "controls.slint";
+import { ColoredAction } from "controls.slint";
 
 export component DiscardDialog inherits Window {
     default-font-family: AppAppearance.font-family;
     default-font-size: (14px * AppAppearance.ui-scale) * AppAppearance.font-scale;
     title: "确认放弃修改";
+    icon: @image-url("../asserts/icon.png");
     preferred-width: (340px * AppAppearance.ui-scale);
     preferred-height: (170px * AppAppearance.ui-scale);
     min-width: 240px;
@@ -27,35 +28,11 @@ export component DiscardDialog inherits Window {
     }
 }
 
-export component EmptyDeleteDialog inherits Window {
-    default-font-family: AppAppearance.font-family;
-    default-font-size: (14px * AppAppearance.ui-scale) * AppAppearance.font-scale;
-    title: "确认删除空便签";
-    preferred-width: (380px * AppAppearance.ui-scale);
-    preferred-height: (180px * AppAppearance.ui-scale);
-    min-width: 240px;
-    min-height: 160px;
-    background: AppAppearance.window-background;
-    callback confirm;
-    callback cancel;
-    ScrollView {
-        width: parent.width; height: parent.height;
-        viewport-width: max(self.visible-width, (380px * AppAppearance.ui-scale));
-        VerticalBox {
-            padding: (20px * AppAppearance.ui-scale); spacing: (16px * AppAppearance.ui-scale);
-            Text { font-family: AppAppearance.font-family; text: "这张已有便签已被清空。要删除它吗？删除后仍可恢复清空前的内容。"; wrap: word-wrap; color: AppAppearance.foreground; }
-            HorizontalBox {
-                Button { min-width: (96px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale); text: "取消，恢复内容"; clicked => { root.cancel(); } }
-                DeleteButton { clicked => { root.confirm(); } }
-            }
-        }
-    }
-}
-
 export component PermanentDeleteDialog inherits Window {
     default-font-family: AppAppearance.font-family;
     default-font-size: (14px * AppAppearance.ui-scale) * AppAppearance.font-scale;
     title: "确认彻底删除便签";
+    icon: @image-url("../asserts/icon.png");
     preferred-width: (430px * AppAppearance.ui-scale);
     preferred-height: (340px * AppAppearance.ui-scale);
     min-width: 240px;

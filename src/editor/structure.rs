@@ -1,6 +1,7 @@
 //! Structured list operations and cross-row edits.
 use super::navigation::{clamp_position, next_boundary, previous_boundary};
 use super::{Editor, Kind, Position, Snapshot, Unit};
+use crate::model::bold;
 use crate::model::{Block, DOCUMENT_FORMAT_VERSION, Document, ListItem};
 
 impl Editor {
@@ -11,7 +12,7 @@ impl Editor {
         if units[cursor.row].kind.is_list() && units[cursor.row].text.is_empty() {
             units[cursor.row].kind = Kind::Paragraph;
         } else {
-            cursor = insert_units(&mut units, cursor, "\n");
+            cursor = insert_units(&mut units, cursor, "\n", self.typing_bold);
         }
         self.finish_command(before, units, cursor)
     }
@@ -29,6 +30,13 @@ impl Editor {
         } else if cursor.offset > 0 {
             let previous = previous_boundary(&units[cursor.row].text, cursor.offset);
             units[cursor.row].text.drain(previous..cursor.offset);
+            bold::edit(
+                &mut units[cursor.row].bold,
+                previous,
+                cursor.offset,
+                0,
+                false,
+            );
             cursor.offset = previous;
         } else if units[cursor.row].kind.is_list() {
             units[cursor.row].kind = Kind::Paragraph;
@@ -37,9 +45,12 @@ impl Editor {
             cursor.row -= 1;
             cursor.offset = units[cursor.row].text.len();
             units[cursor.row].text.push_str(&current.text);
+            bold::append(&mut units[cursor.row].bold, &current.bold, cursor.offset);
             join_following_list(&mut units, cursor.row);
         }
-        self.finish_command(before, units, cursor)
+        let changed = self.finish_command(before, units, cursor);
+        self.refresh_typing_bold();
+        changed
     }
 
     pub fn delete_forward(&mut self) -> bool {
@@ -55,16 +66,20 @@ impl Editor {
         } else if cursor.offset < units[cursor.row].text.len() {
             let next = next_boundary(&units[cursor.row].text, cursor.offset);
             units[cursor.row].text.drain(cursor.offset..next);
+            bold::edit(&mut units[cursor.row].bold, cursor.offset, next, 0, false);
         } else if cursor.row + 1 < units.len() {
             let next = units.remove(cursor.row + 1);
             units[cursor.row].text.push_str(&next.text);
+            bold::append(&mut units[cursor.row].bold, &next.bold, cursor.offset);
             if next.kind == Kind::Paragraph {
                 join_following_list(&mut units, cursor.row);
             } else {
                 join_list_group(&mut units, cursor.row, next.kind);
             }
         }
-        self.finish_command(before, units, cursor)
+        let changed = self.finish_command(before, units, cursor);
+        self.refresh_typing_bold();
+        changed
     }
 
     pub(super) fn units(&self) -> Vec<Unit> {
@@ -72,8 +87,9 @@ impl Editor {
         let mut ordered_group = None;
         for (index, block) in self.document.blocks.iter().enumerate() {
             match block {
-                Block::Paragraph { text } => units.push(Unit {
+                Block::Paragraph { text, bold } => units.push(Unit {
                     text: text.clone(),
+                    bold: bold.clone(),
                     kind: Kind::Paragraph,
                 }),
                 Block::OrderedList {
@@ -88,6 +104,7 @@ impl Editor {
                     ordered_group = Some(group);
                     units.extend(items.iter().map(|item| Unit {
                         text: item.text.clone(),
+                        bold: item.bold.clone(),
                         kind: Kind::Ordered(group),
                     }));
                 }
@@ -95,6 +112,7 @@ impl Editor {
                     ordered_group = None;
                     units.extend(items.iter().map(|item| Unit {
                         text: item.text.clone(),
+                        bold: item.bold.clone(),
                         kind: Kind::Bullet(index),
                     }));
                 }
@@ -124,17 +142,27 @@ impl Editor {
         let mut blocks = Vec::new();
         let mut previous = None;
         let mut ordered_group = None;
-        for unit in units {
+        for mut unit in units {
+            bold::normalize(&unit.text, &mut unit.bold);
             match unit.kind {
-                Kind::Paragraph => blocks.push(Block::Paragraph { text: unit.text }),
+                Kind::Paragraph => blocks.push(Block::Paragraph {
+                    text: unit.text,
+                    bold: unit.bold,
+                }),
                 Kind::Ordered(group) => {
                     if previous == Some(Kind::Ordered(group)) {
                         if let Some(Block::OrderedList { items, .. }) = blocks.last_mut() {
-                            items.push(ListItem { text: unit.text });
+                            items.push(ListItem {
+                                text: unit.text,
+                                bold: unit.bold,
+                            });
                         }
                     } else {
                         blocks.push(Block::OrderedList {
-                            items: vec![ListItem { text: unit.text }],
+                            items: vec![ListItem {
+                                text: unit.text,
+                                bold: unit.bold,
+                            }],
                             continuation: ordered_group == Some(group),
                         });
                     }
@@ -144,11 +172,17 @@ impl Editor {
                     ordered_group = None;
                     if previous == Some(Kind::Bullet(group)) {
                         if let Some(Block::BulletList { items }) = blocks.last_mut() {
-                            items.push(ListItem { text: unit.text });
+                            items.push(ListItem {
+                                text: unit.text,
+                                bold: unit.bold,
+                            });
                         }
                     } else {
                         blocks.push(Block::BulletList {
-                            items: vec![ListItem { text: unit.text }],
+                            items: vec![ListItem {
+                                text: unit.text,
+                                bold: unit.bold,
+                            }],
                         });
                     }
                 }
@@ -158,6 +192,7 @@ impl Editor {
         if blocks.is_empty() {
             blocks.push(Block::Paragraph {
                 text: String::new(),
+                bold: Vec::new(),
             });
         }
         let document = Document {
@@ -172,10 +207,8 @@ impl Editor {
             return false;
         }
         self.revision = self.revision.saturating_add(1);
-        let was_nonempty = !self.is_empty();
-        let previous = std::mem::replace(&mut self.document, document);
+        self.document = document;
         self.index_rows();
-        self.track_empty_recovery(was_nonempty, || previous);
         self.anchor = cursor;
         self.focus = cursor;
         true
@@ -218,12 +251,20 @@ pub(super) fn delete_selection(
         units.clear();
         units.push(Unit {
             text: String::new(),
+            bold: Vec::new(),
             kind: Kind::Paragraph,
         });
         return Position::default();
     }
     if start.row == end.row {
         units[start.row].text.drain(start.offset..end.offset);
+        bold::edit(
+            &mut units[start.row].bold,
+            start.offset,
+            end.offset,
+            0,
+            false,
+        );
     } else if start.offset == 0
         && end.offset == 0
         && units[start.row].kind.is_list()
@@ -238,6 +279,10 @@ pub(super) fn delete_selection(
     } else {
         let end_kind = units[end.row].kind;
         let suffix = units[end.row].text[end.offset..].to_owned();
+        let suffix_bold =
+            bold::clipped(&units[end.row].bold, end.offset, units[end.row].text.len());
+        units[start.row].bold = bold::clipped(&units[start.row].bold, 0, start.offset);
+        bold::append(&mut units[start.row].bold, &suffix_bold, start.offset);
         units[start.row].text.truncate(start.offset);
         units[start.row].text.push_str(&suffix);
         units.drain(start.row + 1..=end.row);
@@ -278,10 +323,30 @@ pub(super) fn join_list_group(units: &mut [Unit], row: usize, group: Kind) {
     }
 }
 
-pub(super) fn insert_units(units: &mut Vec<Unit>, cursor: Position, text: &str) -> Position {
+pub(super) fn insert_units(
+    units: &mut Vec<Unit>,
+    cursor: Position,
+    text: &str,
+    typing_bold: bool,
+) -> Position {
     let mut parts = text.split('\n');
     let first = parts.next().unwrap_or_default();
     let suffix = units[cursor.row].text.split_off(cursor.offset);
+    let suffix_bold = bold::clipped(
+        &units[cursor.row].bold,
+        cursor.offset,
+        cursor.offset + suffix.len(),
+    );
+    units[cursor.row].bold = bold::clipped(&units[cursor.row].bold, 0, cursor.offset);
+    if typing_bold {
+        bold::push(
+            &mut units[cursor.row].bold,
+            crate::model::BoldRange {
+                start: cursor.offset,
+                end: cursor.offset + first.len(),
+            },
+        );
+    }
     units[cursor.row].text.push_str(first);
     let mut row = cursor.row;
     let kind = units[row].kind;
@@ -291,11 +356,33 @@ pub(super) fn insert_units(units: &mut Vec<Unit>, cursor: Position, text: &str) 
             row,
             Unit {
                 text: part.to_owned(),
+                bold: if typing_bold && !part.is_empty() {
+                    vec![crate::model::BoldRange {
+                        start: 0,
+                        end: part.len(),
+                    }]
+                } else {
+                    Vec::new()
+                },
                 kind,
             },
         );
     }
     let offset = units[row].text.len();
     units[row].text.push_str(&suffix);
+    bold::append(&mut units[row].bold, &suffix_bold, offset);
+    for (index, unit) in units.iter_mut().enumerate().take(row + 1).skip(cursor.row) {
+        let from = if index == cursor.row {
+            cursor.offset
+        } else {
+            0
+        };
+        let to = if index == row {
+            offset
+        } else {
+            unit.text.len()
+        };
+        bold::finish_insertion(&unit.text, &mut unit.bold, from, to, typing_bold);
+    }
     Position { row, offset }
 }

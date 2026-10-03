@@ -29,7 +29,10 @@ fn delete_whole_item_renumbers_and_undo_restores_selection() {
         blocks: vec![Block::OrderedList {
             items: ["A", "B", "C", "D", "E", "F"]
                 .into_iter()
-                .map(|text| ListItem { text: text.into() })
+                .map(|text| ListItem {
+                    text: text.into(),
+                    bold: Vec::new(),
+                })
                 .collect(),
             continuation: false,
         }],
@@ -116,11 +119,17 @@ fn delete_whole_item_renumbers_and_undo_restores_selection() {
             Block::OrderedList {
                 items: ["A", "B"]
                     .into_iter()
-                    .map(|text| ListItem { text: text.into() })
+                    .map(|text| ListItem {
+                        text: text.into(),
+                        bold: Vec::new(),
+                    })
                     .collect(),
                 continuation: false,
             },
-            Block::Paragraph { text: "C".into() },
+            Block::Paragraph {
+                text: "C".into(),
+                bold: Vec::new(),
+            },
         ],
     });
     mixed.select(
@@ -187,6 +196,13 @@ fn grapheme_deletion_and_cross_block_replacement_preserve_text() {
     editor.select_all();
     editor.delete_forward();
     assert_eq!(editor.document(), &Document::default());
+    assert!(editor.is_empty());
+    assert!(editor.undo());
+    assert_eq!(editor.document().display_text(), "Ax\nyst");
+    assert!(!editor.is_empty());
+    assert!(editor.redo());
+    assert_eq!(editor.document(), &Document::default());
+    assert!(editor.is_empty());
 }
 
 #[test]
@@ -240,7 +256,10 @@ fn copied_list_markers_are_not_stored_when_pasting_into_a_list() {
         blocks: vec![Block::OrderedList {
             items: ["A", "B", "C"]
                 .into_iter()
-                .map(|text| ListItem { text: text.into() })
+                .map(|text| ListItem {
+                    text: text.into(),
+                    bold: Vec::new(),
+                })
                 .collect(),
             continuation: false,
         }],
@@ -266,7 +285,10 @@ fn copied_list_markers_are_not_stored_when_pasting_into_a_list() {
     let mut bullet = Editor::new(Document {
         format_version: 1,
         blocks: vec![Block::BulletList {
-            items: vec![ListItem { text: "A".into() }],
+            items: vec![ListItem {
+                text: "A".into(),
+                bold: Vec::new(),
+            }],
         }],
     });
     bullet.end(false);
@@ -298,7 +320,10 @@ fn replacing_the_whole_list_preserves_literal_pasted_markers() {
 fn pasting_identical_text_moves_the_caret_without_a_revision_change() {
     let mut editor = Editor::new(Document {
         format_version: 1,
-        blocks: vec![Block::Paragraph { text: "ab".into() }],
+        blocks: vec![Block::Paragraph {
+            text: "ab".into(),
+            bold: Vec::new(),
+        }],
     });
     editor.select(
         Position { row: 0, offset: 1 },
@@ -319,6 +344,7 @@ fn merging_ordered_lists_preserves_continuations_and_independent_lists() {
             .iter()
             .map(|text| ListItem {
                 text: (*text).into(),
+                bold: Vec::new(),
             })
             .collect(),
         continuation,
@@ -329,7 +355,10 @@ fn merging_ordered_lists_preserves_continuations_and_independent_lists() {
             blocks: vec![
                 ordered(&["A"], false),
                 ordered(second_items, false),
-                Block::Paragraph { text: "P".into() },
+                Block::Paragraph {
+                    text: "P".into(),
+                    bold: Vec::new(),
+                },
                 ordered(&["D"], true),
                 ordered(&["E", "F"], false),
             ],
@@ -353,4 +382,206 @@ fn merging_ordered_lists_preserves_continuations_and_independent_lists() {
         assert!(editor.redo());
         assert_eq!(editor.document().display_text(), expected);
     }
+}
+
+#[test]
+fn bold_input_selection_ime_and_grapheme_history() {
+    let mut editor = Editor::new(Document::default());
+    assert!(!editor.toggle_bold());
+    assert_eq!(editor.revision(), 0);
+    assert!(editor.bold_active());
+    assert!(editor.commit_text("中e"));
+    assert_eq!(editor.rows()[0].bold, &[BoldRange { start: 0, end: 4 }]);
+    assert!(!editor.toggle_bold());
+    assert!(editor.commit_text("\u{301}"));
+    editor
+        .document()
+        .validate()
+        .expect("combining character boundary");
+    assert_eq!(editor.rows()[0].bold, &[BoldRange { start: 0, end: 3 }]);
+    assert!(editor.backspace()); // Delete e + combining mark as one grapheme.
+    assert_eq!(editor.rows()[0].text, "中");
+    assert_eq!(editor.rows()[0].bold, &[BoldRange { start: 0, end: 3 }]);
+    assert!(editor.undo());
+    assert_eq!(editor.rows()[0].text, "中e\u{301}");
+    assert!(!editor.bold_active());
+    assert!(editor.undo()); // IME commit remains independent.
+    assert_eq!(editor.rows()[0].text, "中e");
+    assert!(!editor.bold_active()); // Style before the second commit.
+    assert!(editor.redo());
+    editor.select_all();
+    assert!(!editor.bold_active());
+    assert!(editor.toggle_bold());
+    assert!(editor.bold_active());
+    assert_eq!(editor.rows()[0].bold, &[BoldRange { start: 0, end: 6 }]);
+    assert!(editor.toggle_bold());
+    assert!(editor.rows()[0].bold.is_empty());
+    assert!(editor.undo());
+    assert!(editor.bold_active());
+
+    let json = serde_json::to_string(editor.document()).expect("serialize bold");
+    assert_eq!(
+        Document::from_json(&json).expect("read bold"),
+        *editor.document()
+    );
+    for ranges in [
+        r#"[{"start":1,"end":3}]"#,
+        r#"[{"start":0,"end":3},{"start":2,"end":6}]"#,
+    ] {
+        let invalid = format!(
+            r#"{{"format_version":1,"blocks":[{{"type":"paragraph","text":"中abc","bold":{ranges}}}]}}"#
+        );
+        assert!(Document::from_json(&invalid).is_err());
+    }
+}
+
+#[test]
+fn bold_insertion_and_legacy_ranges_cover_whole_graphemes() {
+    use unicode_segmentation::UnicodeSegmentation;
+
+    // Exercise both insertion paths: direct IME commit and selected-text paste.
+    for selection in [false, true] {
+        for enabled in [false, true] {
+            for (base, addition) in [("e", "\u{301}"), ("👩", "\u{200d}👩"), ("🇨", "🇳")] {
+                let mut editor = Editor::new(Document::default());
+                if !enabled {
+                    editor.toggle_bold();
+                }
+                editor.commit_text(base);
+                if selection {
+                    // Include a disposable suffix to force selection replacement.
+                    editor.commit_text("x");
+                    editor.select(
+                        Position {
+                            row: 0,
+                            offset: base.len(),
+                        },
+                        Position {
+                            row: 0,
+                            offset: base.len() + 1,
+                        },
+                    );
+                    // The replacement uses the caret-side style; change it by
+                    // applying the target weight to the disposable selection.
+                    editor.toggle_bold();
+                } else {
+                    editor.toggle_bold();
+                }
+                assert_eq!(editor.input_bold(), enabled);
+                let before = editor.document().clone();
+                if selection {
+                    editor.insert_text(addition, false);
+                } else {
+                    editor.commit_text(addition);
+                }
+                let text = format!("{base}{addition}");
+                assert_eq!(text.graphemes(true).count(), 1);
+                assert_eq!(editor.rows()[0].text, text);
+                let expected = if enabled {
+                    vec![BoldRange {
+                        start: 0,
+                        end: text.len(),
+                    }]
+                } else {
+                    Vec::new()
+                };
+                assert_eq!(editor.rows()[0].bold, expected);
+                assert_eq!(editor.bold_active(), enabled);
+                editor.select_all();
+                assert_eq!(editor.bold_active(), enabled);
+                assert!(editor.undo());
+                assert_eq!(editor.document(), &before);
+                assert!(editor.redo());
+                assert_eq!(editor.rows()[0].bold, expected);
+            }
+        }
+    }
+
+    let json = r#"{"format_version":1,"blocks":[{"type":"paragraph","text":"é","bold":[{"start":1,"end":3}]}]}"#;
+    let document = Document::from_json(json).expect("legacy character-aligned range");
+    let mut editor = Editor::new(document);
+    assert_eq!(editor.rows()[0].bold, [BoldRange { start: 0, end: 3 }]);
+    editor.select_all();
+    assert!(editor.bold_active());
+    assert!(editor.toggle_bold());
+    assert!(editor.rows()[0].bold.is_empty());
+    assert!(editor.undo());
+    assert_eq!(editor.rows()[0].bold, [BoldRange { start: 0, end: 3 }]);
+
+    // Removing a separator can join differently styled characters, too.
+    for separator in ["\t", "\n"] {
+        let mut editor = Editor::new(Document::default());
+        editor.commit_text(&format!("e{separator}"));
+        editor.toggle_bold();
+        editor.commit_text("\u{301}");
+        let before = editor.document().clone();
+        let start = Position { row: 0, offset: 1 };
+        let end = if separator == "\n" {
+            Position { row: 1, offset: 0 }
+        } else {
+            Position { row: 0, offset: 2 }
+        };
+        editor.select(start, end);
+        assert!(editor.backspace());
+        assert_eq!(editor.rows()[0].text, "e\u{301}");
+        assert_eq!(editor.rows()[0].bold, [BoldRange { start: 0, end: 3 }]);
+        assert!(editor.undo());
+        assert_eq!(editor.document(), &before);
+    }
+}
+
+#[test]
+fn bold_ranges_follow_list_conversion_split_join_and_paste() {
+    let mut editor = Editor::new(Document::default());
+    editor.toggle_bold();
+    editor.insert_text("1. ", true);
+    assert!(editor.rows()[0].bold.is_empty());
+    editor.insert_text("ABCD", true);
+    let before = editor.document().clone();
+    let caret = Position { row: 0, offset: 2 };
+    editor.select(caret, caret);
+    editor.enter();
+    assert_eq!(editor.rows()[0].bold, &[BoldRange { start: 0, end: 2 }]);
+    assert_eq!(editor.rows()[1].bold, &[BoldRange { start: 0, end: 2 }]);
+    assert!(editor.bold_active());
+    editor.backspace(); // Exit list, preserving item formatting.
+    assert_eq!(editor.rows()[1].marker, "");
+    editor.backspace(); // Join paragraph and list item, merging adjacent spans.
+    assert_eq!(editor.document(), &before);
+    editor.select(
+        Position { row: 0, offset: 1 },
+        Position { row: 0, offset: 3 },
+    );
+    editor.toggle_bold();
+    assert_eq!(
+        editor.rows()[0].bold,
+        &[
+            BoldRange { start: 0, end: 1 },
+            BoldRange { start: 3, end: 4 }
+        ]
+    );
+    editor.select(
+        Position { row: 0, offset: 1 },
+        Position { row: 0, offset: 4 },
+    );
+    assert!(!editor.bold_active()); // Mixed selection is not uniformly bold.
+    assert!(editor.input_bold()); // Preedit and its commit inherit the same weight.
+    assert!(editor.insert_text("BCD", false)); // Same text, different formatting.
+    assert_eq!(editor.rows()[0].bold, &[BoldRange { start: 0, end: 4 }]);
+    editor.select(
+        Position { row: 0, offset: 1 },
+        Position { row: 0, offset: 3 },
+    );
+    assert!(!editor.insert_text("BC", false)); // Same text and same formatting.
+    editor.end(false);
+    editor.insert_text("\nX", false);
+    editor.select(
+        Position { row: 0, offset: 1 },
+        Position { row: 1, offset: 1 },
+    );
+    assert!(editor.insert_text("Z\nQ", false));
+    assert_eq!(editor.document().display_text(), "1. AZ\n2. Q");
+    assert_eq!(editor.rows()[0].bold, &[BoldRange { start: 0, end: 2 }]);
+    assert_eq!(editor.rows()[1].bold, &[BoldRange { start: 0, end: 1 }]);
+    editor.document().validate().expect("cross-row bold paste");
 }

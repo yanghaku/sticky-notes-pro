@@ -3,7 +3,7 @@
 use super::*;
 
 impl App {
-    pub(super) fn reset_settings_values(&self) {
+    pub(super) fn reset_settings_values(&mut self) {
         let Some(ui) = &self.settings_ui else { return };
         ui.set_note_width(self.settings.note.default_width.round() as i32);
         ui.set_note_height(self.settings.note.default_height.round() as i32);
@@ -29,6 +29,7 @@ impl App {
                 .unwrap_or(0) as i32,
         );
         ui.set_appearance_index(self.settings.appearance_mode.index());
+        self.reset_color_values();
     }
 
     pub(super) fn close_settings(&mut self) -> Result<()> {
@@ -107,7 +108,9 @@ impl App {
             ui.set_status(warning.as_str().into());
         }
         self.settings_ui = Some(ui.clone_strong());
+        self.color_draft = None;
         self.reset_settings_values();
+        self.wire_colors(shared, &ui);
         ui.invoke_preferences_saved();
         let weak = Rc::downgrade(shared);
         ui.on_discard_changes(move || {
@@ -135,6 +138,15 @@ impl App {
                   scale| {
                 dispatch(&weak, |app, _| {
                     let mut updated = app.settings.clone();
+                    updated.note.colors = match app.color_values_for_save() {
+                        Ok(colors) => colors,
+                        Err(error) => {
+                            if let Some(ui) = &app.settings_ui {
+                                ui.set_status(format!("保存失败：{error:#}").into());
+                            }
+                            return Ok(());
+                        }
+                    };
                     updated.appearance_mode = AppearanceMode::from_index(appearance)
                         .context("invalid appearance mode")?;
                     updated.note.default_width = f64::from(width);
@@ -196,6 +208,7 @@ impl App {
         if let Err(error) = ui.show() {
             // Release the window or the app keeps believing settings are open.
             self.settings_ui = None;
+            self.color_draft = None;
             return Err(error).context("cannot show the settings window");
         }
         self.track_settings_window();

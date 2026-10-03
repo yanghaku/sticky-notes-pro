@@ -2,6 +2,7 @@
 use super::navigation::{clamp_offset, next_boundary};
 use super::structure::{delete_selection, insert_units};
 use super::{Editor, Kind, Position};
+use crate::model::bold;
 use std::{
     borrow::Cow,
     time::{Duration, Instant},
@@ -48,7 +49,7 @@ impl Editor {
             } else {
                 Cow::Borrowed(normalized.as_ref())
             };
-            let cursor = insert_units(&mut units, cursor, &inserted);
+            let cursor = insert_units(&mut units, cursor, &inserted, self.typing_bold);
             if !self.install(units, cursor) {
                 // Content is unchanged, but the caret collapsed out of its
                 // selection: end the typing burst without recording history.
@@ -87,6 +88,7 @@ impl Editor {
             {
                 self.push_undo(self.snapshot());
                 unit.text.drain(..length);
+                bold::edit(&mut unit.bold, 0, length, 0, false);
                 unit.kind = kind;
                 cursor.offset = 0;
                 self.install(units, cursor);
@@ -114,12 +116,27 @@ impl Editor {
     // empty-note cache using only the inserted string, not the whole document.
     pub(super) fn insert_single_line(&mut self, text: &str) {
         let mut cursor = self.focus;
-        let body = self.row_text_mut(cursor.row);
+        let typing_bold = self.typing_bold;
+        let (body, ranges) = self.row_parts_mut(cursor.row);
+        bold::edit(
+            ranges,
+            cursor.offset,
+            cursor.offset,
+            text.len(),
+            typing_bold,
+        );
         if cursor.offset == body.len() {
             body.push_str(text);
         } else {
             body.insert_str(cursor.offset, text);
         }
+        bold::finish_insertion(
+            body,
+            ranges,
+            cursor.offset,
+            cursor.offset + text.len(),
+            typing_bold,
+        );
         cursor.offset += text.len();
         let clamped = clamp_offset(body, cursor.offset);
         if clamped < cursor.offset {
@@ -130,7 +147,6 @@ impl Editor {
             location.nonempty = true;
             self.nonempty_rows += 1;
         }
-        self.clear_empty_recovery();
         self.anchor = cursor;
         self.focus = cursor;
         self.revision = self.revision.saturating_add(1);
@@ -138,10 +154,11 @@ impl Editor {
 
     pub(super) fn delete_in_row(&mut self, from: usize, to: usize) -> bool {
         let before = self.snapshot();
-        let was_nonempty = !self.is_empty();
         let row = self.focus.row;
-        let text = self.row_text_mut(row);
+        let (text, ranges) = self.row_parts_mut(row);
+        bold::edit(ranges, from, to, 0, false);
         text.drain(from..to);
+        bold::normalize(text, ranges);
         let mut offset = clamp_offset(text, from);
         if offset < from {
             offset = next_boundary(text, offset);
@@ -150,10 +167,10 @@ impl Editor {
         self.nonempty_rows = self.nonempty_rows - usize::from(self.row_locations[row].nonempty)
             + usize::from(nonempty);
         self.row_locations[row].nonempty = nonempty;
-        self.track_empty_recovery(was_nonempty, || before.document.clone());
         self.anchor = Position { row, offset };
         self.focus = self.anchor;
         self.typing = None;
+        self.refresh_typing_bold();
         self.revision = self.revision.saturating_add(1);
         self.clear_redo();
         self.push_undo(before);

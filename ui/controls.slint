@@ -26,6 +26,42 @@ export component Tool inherits Rectangle {
     Tooltip { Text { font-family: AppAppearance.font-family; font-size: (14px * AppAppearance.ui-scale) * AppAppearance.font-scale; text: root.description; } }
 }
 
+export component ViewTab inherits Rectangle {
+    in property <string> text;
+    in property <bool> active: false;
+    callback clicked;
+    width: (52px * AppAppearance.ui-scale) * max(1, AppAppearance.font-scale);
+    height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale);
+    horizontal-stretch: 0; vertical-stretch: 0;
+    border-radius: (6px * AppAppearance.ui-scale);
+    border-width: (1px * AppAppearance.ui-scale);
+    border-color: keys.has-focus ? AppAppearance.foreground : transparent;
+    background: root.active ? AppAppearance.active : area.has-hover || keys.has-focus ? AppAppearance.hover : transparent;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => { root.clicked(); }
+    forward-focus: keys;
+    keys := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Return || event.text == " " {
+                root.clicked(); return accept;
+            }
+            return reject;
+        }
+    }
+    Text {
+        width: parent.width; height: parent.height;
+        text: root.text;
+        color: root.active ? AppAppearance.foreground : AppAppearance.muted-foreground;
+        font-family: AppAppearance.font-family;
+        font-size: (13px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+        font-weight: root.active ? 600 : 400;
+        horizontal-alignment: center; vertical-alignment: center;
+        overflow: elide;
+    }
+    area := TouchArea { clicked => { keys.focus(); root.clicked(); } }
+}
+
 export component DeleteButton inherits Rectangle {
     in property <bool> available: true;
     callback clicked;

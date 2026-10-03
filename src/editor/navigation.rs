@@ -1,5 +1,6 @@
 //! Borrowed row indexing, selections, and grapheme-safe navigation.
 use super::{Block, Editor, Position, RowLocation, Unit};
+use crate::model::BoldRange;
 use unicode_segmentation::UnicodeSegmentation;
 
 impl Editor {
@@ -11,6 +12,7 @@ impl Editor {
         self.anchor = self.clamp_cursor(anchor);
         self.focus = self.clamp_cursor(focus);
         self.typing = None;
+        self.refresh_typing_bold();
     }
 
     pub fn move_left(&mut self, extend: bool) {
@@ -136,6 +138,7 @@ impl Editor {
             self.anchor = cursor;
         }
         self.typing = None;
+        self.refresh_typing_bold();
     }
 
     pub(super) fn index_rows(&mut self) {
@@ -143,7 +146,7 @@ impl Editor {
         self.nonempty_rows = 0;
         for (block, content) in self.document.blocks.iter().enumerate() {
             match content {
-                Block::Paragraph { text } => {
+                Block::Paragraph { text, .. } => {
                     let nonempty = !text.trim().is_empty();
                     self.nonempty_rows += usize::from(nonempty);
                     self.row_locations.push(RowLocation {
@@ -178,12 +181,13 @@ impl Editor {
         self.row_text_at(&self.row_locations[row])
     }
 
-    pub(super) fn row_text_mut(&mut self, row: usize) -> &mut String {
+    pub(super) fn row_parts_mut(&mut self, row: usize) -> (&mut String, &mut Vec<BoldRange>) {
         let location = self.row_locations[row];
         match &mut self.document.blocks[location.block] {
-            Block::Paragraph { text } => text,
+            Block::Paragraph { text, bold } => (text, bold),
             Block::OrderedList { items, .. } | Block::BulletList { items } => {
-                &mut items[location.item.expect("list row has an item index")].text
+                let item = &mut items[location.item.expect("list row has an item index")];
+                (&mut item.text, &mut item.bold)
             }
         }
     }

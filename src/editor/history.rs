@@ -1,4 +1,4 @@
-//! Bounded undo/redo snapshots and exact empty-note recovery.
+//! Bounded undo/redo snapshots.
 use super::{Editor, HISTORY_BYTES, HISTORY_LIMIT, Snapshot};
 
 impl Editor {
@@ -32,27 +32,27 @@ impl Editor {
             anchor: self.anchor,
             focus: self.focus,
             bytes: self.document.estimated_size(),
+            typing_bold: self.typing_bold,
         }
     }
 
     pub(super) fn restore(&mut self, snapshot: Snapshot) -> Snapshot {
-        let was_nonempty = !self.is_empty();
         let anchor = self.anchor;
         let focus = self.focus;
+        let typing_bold = self.typing_bold;
         let bytes = self.document.estimated_size();
         let previous = std::mem::replace(&mut self.document, snapshot.document);
         self.index_rows();
-        // Undo/redo also needs the old document. Only this transition duplicates
-        // it; ordinary history navigation moves ownership.
-        self.track_empty_recovery(was_nonempty, || previous.clone());
         self.anchor = snapshot.anchor;
         self.focus = snapshot.focus;
+        self.typing_bold = snapshot.typing_bold;
         self.revision = self.revision.saturating_add(1);
         Snapshot {
             document: previous,
             anchor,
             focus,
             bytes,
+            typing_bold,
         }
     }
 

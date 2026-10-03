@@ -1,6 +1,62 @@
 use super::*;
 
 #[test]
+fn clearing_a_saved_note_preserves_identity_while_draft_close_adds_no_rows() -> Result<()> {
+    let mut repository = Repository::open(Path::new(":memory:"))?;
+    let mut note = repository.create_note("blue")?;
+    note.document = Document::from_json(
+        r#"{"format_version":1,"blocks":[{"type":"paragraph","text":"content to clear"}]}"#,
+    )?;
+    note.updated_at = note.updated_at.saturating_add(1);
+    repository.save_note(&note)?;
+    // A formatting-only edit must survive persistence even when plain text is unchanged.
+    note.document = Document::from_json(
+        r#"{"format_version":1,"blocks":[{"type":"paragraph","text":"content to clear","bold":[{"start":0,"end":7}]}]}"#,
+    )?;
+    note.updated_at = note.updated_at.saturating_add(1);
+    repository.save_note(&note)?;
+    let styled = repository.note(&note.id)?.context("styled note missing")?;
+    assert_eq!(styled.document.map_err(anyhow::Error::msg)?, note.document);
+    assert_eq!(styled.updated_at, note.updated_at);
+    note.document = Document::default();
+    note.updated_at = note.updated_at.saturating_add(1);
+    repository.save_note(&note)?;
+    let state = WindowState::for_note(&note.id, 360.0, 420.0);
+    repository.close_window(&state)?;
+    let restored = repository
+        .startup_note()?
+        .context("empty saved note missing")?;
+    assert_eq!(restored.id, note.id);
+    assert_eq!(
+        restored.document.map_err(anyhow::Error::msg)?,
+        note.document
+    );
+    assert!(restored.plain_text.is_empty());
+    assert!(restored.deleted_at.is_none());
+    assert!(repository.list_notes(true)?.is_empty());
+    let mut empty_draft = note.clone();
+    empty_draft.id = "must-not-be-created".to_owned();
+    assert!(repository.save_draft(&empty_draft).is_err());
+
+    repository.close_draft()?;
+    repository.close_draft()?;
+    assert!(repository.startup_note()?.is_none());
+    assert_eq!(repository.list_notes(false)?.len(), 1);
+    assert!(repository.note_exists(&note.id)?);
+    assert_eq!(
+        repository.window_state(&state.id)?.map(|state| state.id),
+        Some(state.id)
+    );
+    let counts: (i64, i64) = repository.connection.query_row(
+        "SELECT (SELECT COUNT(*) FROM window_states), (SELECT COUNT(*) FROM app_state)",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    assert_eq!(counts, (1, 0));
+    Ok(())
+}
+
+#[test]
 fn deletion_is_atomic_and_late_autosave_cannot_resurrect_note() -> Result<()> {
     let mut repository = Repository::open(Path::new(":memory:"))?;
     let note = repository.create_note("yellow")?;
@@ -27,7 +83,7 @@ fn deletion_is_atomic_and_late_autosave_cannot_resurrect_note() -> Result<()> {
     draft.id = "unpersisted-draft".to_owned();
     let draft_state = WindowState::for_note(&draft.id, 360.0, 420.0);
     assert!(repository.save_draft(&draft).is_err());
-    repository.close_empty(&draft.id, &draft_state)?;
+    repository.close_draft()?;
     assert!(repository.startup_note()?.is_none());
     assert!(repository.window_state(&draft_state.id)?.is_none());
     draft.document = Document::from_json(
@@ -35,7 +91,7 @@ fn deletion_is_atomic_and_late_autosave_cannot_resurrect_note() -> Result<()> {
     )?;
     repository.save_draft(&draft)?;
     assert!(repository.save_draft(&draft).is_err());
-    repository.close_empty(&draft.id, &draft_state)?;
+    repository.soft_delete(&draft.id, Some(&draft), Some(&draft_state))?;
     assert!(repository.save_draft(&draft).is_err());
     let deleted = repository.list_notes(true)?;
     assert_eq!(
@@ -173,7 +229,7 @@ fn version_zero_adoption_preserves_notes_and_allows_draft_close() -> Result<()> 
     assert_eq!(version, SCHEMA_VERSION);
 
     let draft = WindowState::for_note("unpersisted-draft", 360.0, 420.0);
-    repository.close_empty("unpersisted-draft", &draft)?;
+    repository.close_draft()?;
     assert!(repository.window_state(&draft.id)?.is_none());
     assert!(repository.startup_note()?.is_none());
     assert!(repository.note_exists("saved")?);

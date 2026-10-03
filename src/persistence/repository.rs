@@ -10,7 +10,7 @@ use super::{
     WindowState, now_millis,
     paths::parent_directory,
     schema::{DRAFT_STATE_MIGRATION, INITIAL_SCHEMA, OWNED_TABLES, SCHEMA_VERSION},
-    windows::{WINDOW_COLUMNS, close_window_in, read_window, record_close_in, save_window_in},
+    windows::{WINDOW_COLUMNS, close_window_in, read_window, save_window_in},
 };
 use crate::model::{Document, Note};
 
@@ -179,6 +179,7 @@ impl Repository {
     }
 
     /// Check persistence without loading or parsing the note's content again.
+    #[cfg(test)]
     pub fn note_exists(&self, id: &str) -> Result<bool> {
         self.connection
             .query_row(
@@ -282,33 +283,14 @@ impl Repository {
             .context("cannot commit closed window state")
     }
 
-    /// Unpersisted drafts only leave a close record. Clearing a saved note soft-deletes
-    /// its last durable content, preserving that content for the deleted view and recovery.
-    pub fn close_empty(&mut self, id: &str, state: &WindowState) -> Result<()> {
-        state.validate()?;
-        ensure!(
-            state.note_id.as_deref() == Some(id),
-            "empty window belongs to another note"
-        );
+    /// Closing an identity-free draft leaves no persisted restore target. Clear
+    /// only the last-close history, without creating note or window-state rows.
+    pub fn close_draft(&mut self) -> Result<()> {
         let transaction = write_transaction(&mut self.connection)?;
-        let exists: bool = transaction.query_row(
-            "SELECT EXISTS(SELECT 1 FROM notes WHERE id = ?1)",
-            [id],
-            |row| row.get(0),
-        )?;
-        if exists {
-            close_window_in(&transaction, state)?;
-            let changed = transaction.execute(
-                "UPDATE notes SET deleted_at = ?2 WHERE id = ?1 AND deleted_at IS NULL",
-                params![id, now_millis()],
-            )?;
-            ensure!(changed == 1, "note is already deleted");
-        } else {
-            record_close_in(&transaction, state)?;
-        }
         transaction
-            .commit()
-            .context("cannot commit empty note close")
+            .execute("DELETE FROM app_state WHERE id = 1", [])
+            .context("cannot clear draft restore target")?;
+        transaction.commit().context("cannot commit draft close")
     }
 
     pub fn window_state(&self, id: &str) -> Result<Option<WindowState>> {

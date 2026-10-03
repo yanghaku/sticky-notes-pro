@@ -18,6 +18,12 @@ export global AppAppearance {
     out property <color> surface: dark ? #27292d : #ffffff;
     out property <color> window-background: dark ? #202124 : #faf9f6;
     out property <color> border: dark ? #4a4e57 : #d9dce2;
+    // Stable semantic order: yellow, green, pink, purple, blue, gray.
+    in-out property <[color]> light-note-colors: [#fff4bf, #daf2ce, #fbd8e2, #e8ddfa, #d5ebfb, #e9e7e3];
+    in-out property <[color]> dark-note-colors: [#3a3323, #27392c, #3e2932, #352e43, #253742, #343638];
+    in-out property <color> light-note-border: #8b929e;
+    in-out property <color> dark-note-border: #747c88;
+    out property <color> note-window-border: dark ? dark-note-border : light-note-border;
     out property <color> hover: dark ? #ffffff14 : #343b4610;
     out property <color> active: dark ? #344a68 : #dbe9ff;
     out property <color> danger-foreground: dark ? #ffc1b8 : #a32620;
@@ -30,9 +36,9 @@ export global AppAppearance {
     }
     public pure function note-color(id: string) -> color {
         if AppAppearance.dark {
-            return id == "yellow" ? #3a3323 : id == "green" ? #27392c : id == "pink" ? #3e2932 : id == "purple" ? #352e43 : id == "blue" ? #253742 : id == "gray" ? #343638 : #202124;
+            return id == "yellow" ? AppAppearance.dark-note-colors[0] : id == "green" ? AppAppearance.dark-note-colors[1] : id == "pink" ? AppAppearance.dark-note-colors[2] : id == "purple" ? AppAppearance.dark-note-colors[3] : id == "blue" ? AppAppearance.dark-note-colors[4] : id == "gray" ? AppAppearance.dark-note-colors[5] : #202124;
         }
-        return id == "yellow" ? #fff4bf : id == "green" ? #daf2ce : id == "pink" ? #fbd8e2 : id == "purple" ? #e8ddfa : id == "blue" ? #d5ebfb : id == "gray" ? #e9e7e3 : #ffffff;
+        return id == "yellow" ? AppAppearance.light-note-colors[0] : id == "green" ? AppAppearance.light-note-colors[1] : id == "pink" ? AppAppearance.light-note-colors[2] : id == "purple" ? AppAppearance.light-note-colors[3] : id == "blue" ? AppAppearance.light-note-colors[4] : id == "gray" ? AppAppearance.light-note-colors[5] : #ffffff;
     }
 }
 
@@ -50,4 +56,10 @@ export struct ShortcutEntry {
     label: string,
     keys: string,
     section: bool,
+}
+
+export struct ColorSlot {
+    name: string,
+    value: color,
+    hex: string,
 }

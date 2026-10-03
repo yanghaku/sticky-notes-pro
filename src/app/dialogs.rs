@@ -12,7 +12,7 @@ impl App {
             platform::activate(ui.window());
             return Ok(());
         }
-        if self.pending_notes.contains(id) || self.notes.contains_key(id) {
+        if self.pending_notes.contains(id) || self.window_for_note(id).is_some() {
             return Ok(());
         }
         if !self.list.as_ref().is_some_and(|ui| ui.get_deleted_view()) {
@@ -58,7 +58,7 @@ impl App {
         if target != id || ui.get_busy() {
             return Ok(());
         }
-        if self.pending_notes.contains(id) || self.notes.contains_key(id) {
+        if self.pending_notes.contains(id) || self.window_for_note(id).is_some() {
             ui.set_error("这张便签正在进行其他操作，请稍后重试或取消。".into());
             return Ok(());
         }
@@ -89,113 +89,8 @@ impl App {
         self.check_exit()
     }
 
-    pub(super) fn confirm_empty_delete(
-        &mut self,
-        shared: &Rc<RefCell<Self>>,
-        id: &str,
-    ) -> Result<()> {
-        if self.empty_dialog.is_some() || self.discard.is_some() {
-            return Ok(());
-        }
-        let Some(panel) = self.notes.get(id) else {
-            return Ok(());
-        };
-        if !panel.persisted
-            || panel.in_flight
-            || !panel
-                .editor
-                .as_ref()
-                .is_some_and(|editor| editor.is_empty())
-        {
-            return Ok(());
-        }
-        let dialog = EmptyDeleteDialog::new()?;
-        self.configure_appearance(&dialog);
-        if let Some(panel) = self.notes.get_mut(id) {
-            panel.confirming_empty = true;
-            panel.ui.set_frozen(true);
-            panel.ui.invoke_dismiss_popups();
-            panel.ui.set_status("已清空，等待删除确认".into());
-            panel.set_ime_enabled(false);
-        }
-        self.empty_dialog = Some((id.to_owned(), dialog.clone_strong()));
-        let weak = Rc::downgrade(shared);
-        let note_id = id.to_owned();
-        dialog.on_confirm(move || {
-            dispatch(&weak, |app, _| {
-                if let Some((_, dialog)) = app.empty_dialog.take() {
-                    dialog.hide()?;
-                }
-                if let Some(panel) = app.notes.get_mut(&note_id) {
-                    panel.confirming_empty = false;
-                    panel.empty_confirmed = true;
-                    panel.pending_action = Some(SaveAction::Delete);
-                    app.pending_notes.insert(note_id.clone());
-                    app.list_dirty_rows.insert(note_id.clone());
-                    app.list_dirty = true;
-                }
-                Ok(())
-            })
-        });
-        let weak = Rc::downgrade(shared);
-        let note_id = id.to_owned();
-        dialog.on_cancel(move || dispatch(&weak, |app, _| app.cancel_empty_delete(&note_id)));
-        let weak = Rc::downgrade(shared);
-        let note_id = id.to_owned();
-        dialog.window().on_close_requested(move || {
-            dispatch(&weak, |app, _| app.cancel_empty_delete(&note_id));
-            slint::CloseRequestResponse::KeepWindowShown
-        });
-        if let Err(error) = dialog.show() {
-            // The confirmation never appeared: unfreeze the note instead of waiting
-            // for an answer from a window nobody can click.
-            self.cancel_empty_delete(id)?;
-            return Err(error).context("cannot show the empty note dialog");
-        }
-        self.list_dirty = true;
-        self.list_dirty_rows.insert(id.to_owned());
-        Ok(())
-    }
-
-    pub(super) fn cancel_empty_delete(&mut self, id: &str) -> Result<()> {
-        self.pending_notes.remove(id);
-        if let Some((_, dialog)) = self.empty_dialog.take() {
-            dialog.hide()?;
-        }
-        if let Some(panel) = self.notes.get_mut(id) {
-            panel.confirming_empty = false;
-            panel.empty_confirmed = false;
-            panel.pending_action = None;
-            panel.ui.set_frozen(false);
-            if let Some(editor) = &mut panel.editor {
-                while editor.is_empty() && editor.undo() {}
-                if editor.is_empty()
-                    && let Some(document) = &panel.last_nonempty
-                {
-                    *editor = Editor::new(document.clone());
-                }
-            }
-            panel.changed();
-            if panel
-                .editor
-                .as_ref()
-                .is_some_and(|editor| editor.is_empty())
-            {
-                // Older releases could contain already-empty notes: cancelling must
-                // not immediately open the same confirmation again.
-                panel.dirty_since = None;
-                panel.ui.set_status("".into());
-            }
-            panel.ui.invoke_focus_editor();
-            panel.set_ime_enabled(true);
-        }
-        self.list_dirty = true;
-        self.list_dirty_rows.insert(id.to_owned());
-        Ok(())
-    }
-
     pub(super) fn confirm_discard(&mut self, shared: &Rc<RefCell<Self>>, id: &str) -> Result<()> {
-        if self.discard.is_some() || self.empty_dialog.is_some() {
+        if self.discard.is_some() {
             return Ok(());
         }
         if self.notes.get(id).is_some_and(|panel| panel.in_flight) {
@@ -221,9 +116,8 @@ impl App {
                     let job = if panel.persisted {
                         Job::CloseWindow { state }
                     } else {
-                        Job::CloseEmpty {
+                        Job::CloseDraft {
                             id: note_id.clone(),
-                            state,
                         }
                     };
                     app.worker

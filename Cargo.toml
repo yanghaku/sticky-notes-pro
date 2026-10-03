@@ -1,6 +1,6 @@
 [package]
 name = "sticky-notes-pro"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.92"
 description = "A lightweight and high performance sticky notes editor"
@@ -23,6 +23,7 @@ uuid = { version = "1", features = ["v4"] }
 
 [build-dependencies]
 slint-build = "=1.17.1"
+winresource = "0.1.31"
 
 [profile.release]
 lto = "thin"

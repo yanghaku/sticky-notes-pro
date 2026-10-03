@@ -1,0 +1,206 @@
+import { Button, LineEdit } from "std-widgets.slint";
+import { AppAppearance, ColorSlot } from "appearance.slint";
+
+component ColorChoice inherits Rectangle {
+    in property <string> text;
+    in property <string> detail;
+    in property <color> swatch-color;
+    in property <bool> show-swatch: false;
+    in property <bool> selected: false;
+    in property <bool> available: true;
+    callback clicked;
+    height: max((36px * AppAppearance.ui-scale), (36px * AppAppearance.ui-scale) * AppAppearance.font-scale);
+    vertical-stretch: 0;
+    horizontal-stretch: 1;
+    border-radius: (6px * AppAppearance.ui-scale);
+    border-width: (1px * AppAppearance.ui-scale);
+    border-color: root.selected ? AppAppearance.foreground : AppAppearance.border;
+    background: root.selected ? AppAppearance.active : area.has-hover || keys.has-focus ? AppAppearance.hover : AppAppearance.surface;
+    opacity: root.available ? 1 : 0.5;
+    accessible-role: button;
+    accessible-label: root.text + " " + root.detail;
+    accessible-enabled: root.available;
+    accessible-action-default => { if root.available { root.clicked(); } }
+    forward-focus: keys;
+    keys := FocusScope {
+        key-pressed(event) => {
+            if root.available && (event.text == Key.Return || event.text == " ") {
+                root.clicked(); return accept;
+            }
+            return reject;
+        }
+    }
+    HorizontalLayout {
+        padding: (6px * AppAppearance.ui-scale);
+        spacing: (8px * AppAppearance.ui-scale);
+        if root.show-swatch: Rectangle {
+            width: (24px * AppAppearance.ui-scale);
+            height: (24px * AppAppearance.ui-scale);
+            horizontal-stretch: 0;
+            background: root.swatch-color;
+            border-radius: (4px * AppAppearance.ui-scale);
+            border-width: (1px * AppAppearance.ui-scale);
+            border-color: AppAppearance.border;
+        }
+        Text {
+            font-family: AppAppearance.font-family;
+            font-size: (14px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+            text: root.text;
+            color: AppAppearance.foreground;
+            overflow: elide;
+            horizontal-alignment: root.show-swatch ? left : center;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        if root.detail != "": Text {
+            font-family: AppAppearance.font-family;
+            font-size: (12px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+            text: root.detail;
+            color: AppAppearance.muted-foreground;
+            horizontal-stretch: 0;
+            vertical-alignment: center;
+        }
+    }
+    area := TouchArea { enabled: root.available; clicked => { root.clicked(); } }
+}
+
+// Draft values are owned and validated by Rust. Programmatic synchronization
+// never emits edited callbacks, and choosing a mode/slot is not optimistic.
+export component ColorsEditor inherits VerticalLayout {
+    in property <[ColorSlot]> color-slots;
+    in property <bool> enabled: true;
+    in property <int> color-mode: 0;
+    in property <int> color-slot: 0;
+    in-out property <string> color-red;
+    in-out property <string> color-green;
+    in-out property <string> color-blue;
+    in-out property <string> color-hex;
+    in property <string> color-error;
+    in property <string> color-warning;
+    in property <color> color-preview-background;
+    in property <color> color-preview-border;
+    in property <color> color-preview-foreground;
+    callback select-color(int, int);
+    callback edit-color-rgb(string, string, string);
+    callback edit-color-hex(string);
+    callback reset-color(bool);
+    spacing: (10px * AppAppearance.ui-scale);
+    alignment: start;
+
+    Text {
+        font-family: AppAppearance.font-family;
+        font-size: (16px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+        font-weight: 600;
+        text: "便签配色";
+        color: AppAppearance.foreground;
+    }
+    Text {
+        font-family: AppAppearance.font-family;
+        font-size: (12px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+        text: "分别编辑浅色和深色配色，不切换当前外观模式。修改保存后应用到便签与列表。白 / 黑背景随外观固定变换。";
+        color: AppAppearance.muted-foreground;
+        wrap: word-wrap;
+    }
+    HorizontalLayout {
+        spacing: (8px * AppAppearance.ui-scale);
+        ColorChoice {
+            text: "浅色配色"; selected: root.color-mode == 0; available: root.enabled;
+            clicked => { root.select-color(0, root.color-slot); }
+        }
+        ColorChoice {
+            text: "深色配色"; selected: root.color-mode == 1; available: root.enabled;
+            clicked => { root.select-color(1, root.color-slot); }
+        }
+    }
+    for slot in [0, 1, 2, 3, 4, 5, 6]: ColorChoice {
+        text: root.color-slots[root.color-mode * 7 + slot].name;
+        detail: root.color-slots[root.color-mode * 7 + slot].hex;
+        swatch-color: root.color-slots[root.color-mode * 7 + slot].value;
+        show-swatch: true; selected: root.color-slot == slot; available: root.enabled;
+        clicked => { root.select-color(root.color-mode, slot); }
+    }
+    Text {
+        font-family: AppAppearance.font-family;
+        font-size: (12px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+        text: "RGB 范围 0–255，与 #RRGGBB 同步。";
+        color: AppAppearance.muted-foreground;
+        wrap: word-wrap;
+    }
+    HorizontalLayout {
+        spacing: (12px * AppAppearance.ui-scale);
+        Text { font-family: AppAppearance.font-family; text: "红 R"; color: AppAppearance.foreground; width: (64px * AppAppearance.ui-scale); vertical-alignment: center; }
+        LineEdit {
+            min-width: (128px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale);
+            font-family: AppAppearance.font-family; font-size: (14px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+            text <=> root.color-red; placeholder-text: "0–255"; enabled: root.enabled; read-only: !root.enabled;
+            edited(text) => { if root.enabled { root.edit-color-rgb(text, root.color-green, root.color-blue); } }
+        }
+    }
+    HorizontalLayout {
+        spacing: (12px * AppAppearance.ui-scale);
+        Text { font-family: AppAppearance.font-family; text: "绿 G"; color: AppAppearance.foreground; width: (64px * AppAppearance.ui-scale); vertical-alignment: center; }
+        LineEdit {
+            min-width: (128px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale);
+            font-family: AppAppearance.font-family; font-size: (14px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+            text <=> root.color-green; placeholder-text: "0–255"; enabled: root.enabled; read-only: !root.enabled;
+            edited(text) => { if root.enabled { root.edit-color-rgb(root.color-red, text, root.color-blue); } }
+        }
+    }
+    HorizontalLayout {
+        spacing: (12px * AppAppearance.ui-scale);
+        Text { font-family: AppAppearance.font-family; text: "蓝 B"; color: AppAppearance.foreground; width: (64px * AppAppearance.ui-scale); vertical-alignment: center; }
+        LineEdit {
+            min-width: (128px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale);
+            font-family: AppAppearance.font-family; font-size: (14px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+            text <=> root.color-blue; placeholder-text: "0–255"; enabled: root.enabled; read-only: !root.enabled;
+            edited(text) => { if root.enabled { root.edit-color-rgb(root.color-red, root.color-green, text); } }
+        }
+    }
+    HorizontalLayout {
+        spacing: (12px * AppAppearance.ui-scale);
+        Text { font-family: AppAppearance.font-family; text: "HEX"; color: AppAppearance.foreground; width: (64px * AppAppearance.ui-scale); vertical-alignment: center; }
+        LineEdit {
+            min-width: (128px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale);
+            font-family: AppAppearance.font-family; font-size: (14px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+            text <=> root.color-hex; placeholder-text: "#RRGGBB"; enabled: root.enabled; read-only: !root.enabled;
+            edited(text) => { if root.enabled { root.edit-color-hex(text); } }
+        }
+    }
+    if root.color-error != "": Text {
+        font-family: AppAppearance.font-family;
+        font-size: (12px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+        text: root.color-error; color: AppAppearance.danger-foreground; wrap: word-wrap;
+    }
+    Rectangle {
+        height: (100px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+        vertical-stretch: 0;
+        background: root.color-preview-background;
+        border-color: root.color-preview-border;
+        border-width: (2px * AppAppearance.ui-scale);
+        border-radius: (6px * AppAppearance.ui-scale);
+        clip: true;
+        Text {
+            x: (12px * AppAppearance.ui-scale); y: (10px * AppAppearance.ui-scale);
+            width: parent.width - (24px * AppAppearance.ui-scale); height: parent.height - (20px * AppAppearance.ui-scale);
+            font-family: AppAppearance.font-family;
+            font-size: (14px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+            text: "便签正文预览\n保持清晰可读的文字对比。";
+            color: root.color-preview-foreground; wrap: word-wrap; overflow: elide;
+        }
+    }
+    if root.color-warning != "": Text {
+        font-family: AppAppearance.font-family;
+        font-size: (12px * AppAppearance.ui-scale) * AppAppearance.font-scale;
+        text: "对比提示：" + root.color-warning; color: AppAppearance.muted-foreground; wrap: word-wrap;
+    }
+    Button {
+        min-width: (160px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale);
+        text: "恢复当前颜色默认值"; enabled: root.enabled;
+        clicked => { if root.enabled { root.reset-color(false); } }
+    }
+    Button {
+        min-width: (160px * AppAppearance.ui-scale); min-height: max(24px, (32px * AppAppearance.ui-scale) * AppAppearance.font-scale);
+        text: "恢复全部配色默认值"; enabled: root.enabled;
+        clicked => { if root.enabled { root.reset-color(true); } }
+    }
+}
