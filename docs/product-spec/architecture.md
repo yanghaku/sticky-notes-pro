@@ -25,7 +25,7 @@ UI 的输入事件转换为 Editor 命令，排版映射必须回到同一文档
 | `src/text_layout/` | 排版、几何 / 命中、共享字体和字形缓存、栅格绘制 |
 | `src/persistence/` | 路径、设置、Schema / 迁移、窗口状态与便签事务 |
 | `src/worker.rs` | 有界串行保存队列、修订顺序与任务回复 |
-| `src/platform.rs`、`src/instance.rs` | 窗口能力与系统桥接、数据目录单实例 |
+| `src/platform.rs`、`src/platform/`、`src/instance.rs` | 窗口能力、Windows 原生便签边框与系统桥接、数据目录单实例 |
 | `src/shortcuts.rs` | 固定便签操作绑定与设置页说明 |
 | `ui/` | 便签、列表、设置、确认窗口、公共控件和外观；`app.slint` 为导出入口 |
 

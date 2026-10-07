@@ -13,8 +13,9 @@ export component NoteWindow inherits Window {
     in property <length> available-height: 240px;
     min-width: min(root.available-width, max(320px, 320px * AppAppearance.ui-scale));
     min-height: min(root.available-height, max(240px, 240px * AppAppearance.ui-scale));
-    no-frame: true;
-    resize-border-width: (5px * AppAppearance.ui-scale);
+    in property <bool> native-frame: false;
+    no-frame: !root.native-frame;
+    resize-border-width: root.native-frame ? 0px : (5px * AppAppearance.ui-scale);
     in-out property <color> note-background: AppAppearance.note-color(root.theme-id);
     in-out property <image> editor-image;
     in-out property <string> status;
@@ -56,12 +57,12 @@ export component NoteWindow inherits Window {
     always-on-top: root.pinned && root.pin-supported;
     background: root.note-background;
 
-    Rectangle {
+    if !root.native-frame: Rectangle {
         width: root.width;
         height: root.height;
         background: transparent;
         border-width: root.maximized ? 0px : 3px;
-        border-color: AppAppearance.note-window-border;
+        border-color: AppAppearance.native-note-frame ? AppAppearance.border : AppAppearance.note-window-border;
     }
 
     Rectangle {

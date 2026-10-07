@@ -8,6 +8,7 @@ impl App {
         AppAppearance<'a>: slint::Global<'a, C>,
     {
         let appearance = ui.global::<AppAppearance>();
+        appearance.set_native_note_frame(cfg!(target_os = "windows"));
         appearance.invoke_apply_mode(self.settings.appearance_mode.index());
         appearance.set_font_family(self.settings.window_font.font_family.as_str().into());
         appearance.set_font_size(self.settings.window_font.font_size as f32);
@@ -21,7 +22,9 @@ impl App {
 
     pub(super) fn apply_appearance(&mut self) {
         for panel in self.notes.values() {
-            self.configure_appearance(&panel.ui);
+            platform::update_note_window(panel.ui.window(), || {
+                self.configure_appearance(&panel.ui);
+            });
         }
         if let Some(ui) = &self.list {
             self.configure_appearance(ui);

@@ -7,6 +7,57 @@ use winit::window::WindowLevel;
 
 use crate::persistence::{WindowState, now_millis};
 
+// The only application-owned Win32 FFI, isolated from editor and persistence.
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
+mod windows_frame;
+
+/// Keep Windows' real non-client frame around the custom note toolbar.
+/// Other platforms retain the frameless Slint window.
+pub fn install_note_frame(window: &slint::Window) -> anyhow::Result<()> {
+    #[cfg(target_os = "windows")]
+    {
+        use anyhow::Context;
+        window
+            .with_winit_window(windows_frame::install)
+            .context("note window has no native Windows handle")?
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = window;
+        Ok(())
+    }
+}
+
+/// Flush note constraints inside the same explicit client-resize scope as the
+/// property change. Slint's later deferred update then sees unchanged limits.
+/// Slint 1.17.1 resets client size when applying min/max constraints; recheck
+/// this bridge when upgrading Slint. Note limits depend on scale and monitor.
+pub fn update_note_window(window: &slint::Window, update: impl FnOnce()) {
+    #[cfg(target_os = "windows")]
+    {
+        use slint::private_unstable_api::re_exports::WindowInner;
+
+        let mut pending = Some(update);
+        window.with_winit_window(|native| {
+            windows_frame::with_client_resize(native, || {
+                pending
+                    .take()
+                    .expect("native accessor invokes its callback once")();
+                WindowInner::from_pub(window).update_window_properties();
+            });
+        });
+        if let Some(update) = pending {
+            update();
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = window;
+        update();
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Capabilities {
     pub position: bool,
@@ -91,7 +142,13 @@ pub fn restore(window: &slint::Window, state: &WindowState) {
             .clamp(320.0_f64.min(available.width), available.width);
         let height = positive(state.normal_height, 480.0)
             .clamp(240.0_f64.min(available.height), available.height);
-        let _ = native.request_inner_size(LogicalSize::new(width, height));
+        let resize = || {
+            let _ = native.request_inner_size(LogicalSize::new(width, height));
+        };
+        #[cfg(target_os = "windows")]
+        windows_frame::with_client_resize(native, resize);
+        #[cfg(not(target_os = "windows"))]
+        resize();
         if caps.position
             && let Some(monitor) = monitor
         {

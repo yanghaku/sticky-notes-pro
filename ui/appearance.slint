@@ -3,6 +3,8 @@ import { Palette } from "std-widgets.slint";
 export global AppAppearance {
     // 0 follows the live system preference; 1/2 override it for every component.
     in-out property <int> mode-index: 0;
+    // Native note frames are managed by Windows, not the editable color palette.
+    in-out property <bool> native-note-frame: false;
     // UI typography is independent from the rasterized note body typography.
     in-out property <string> font-family: "";
     in-out property <float> font-size: 14;

@@ -54,10 +54,13 @@ pub(super) fn palette_model(palette: &NotePalette) -> ModelRc<slint::Color> {
 impl App {
     pub(super) fn reset_color_values(&mut self) {
         let Some(ui) = &self.settings_ui else { return };
-        let (mode, slot) = self.color_draft.as_ref().map_or_else(
+        let (mode, mut slot) = self.color_draft.as_ref().map_or_else(
             || (usize::from(ui.global::<AppAppearance>().get_dark()), 0),
             |draft| (draft.mode, draft.slot),
         );
+        if ui.global::<AppAppearance>().get_native_note_frame() && slot == 6 {
+            slot = 0;
+        }
         self.color_draft = Some(ColorDraft {
             colors: self.settings.note.colors,
             mode,
@@ -109,7 +112,9 @@ impl App {
             return Ok(());
         }
         anyhow::ensure!(
-            (0..=1).contains(&mode) && (0..=6).contains(&slot),
+            (0..=1).contains(&mode)
+                && (0..=6).contains(&slot)
+                && (!ui.global::<AppAppearance>().get_native_note_frame() || slot < 6),
             "invalid color selection"
         );
         if let Some(draft) = &mut self.color_draft {
@@ -140,11 +145,23 @@ impl App {
     }
 
     fn reset_colors(&mut self, all: bool) -> Result<()> {
+        let native_frame = self
+            .settings_ui
+            .as_ref()
+            .is_some_and(|ui| ui.global::<AppAppearance>().get_native_note_frame());
         let draft = self
             .color_draft
             .as_mut()
             .context("color settings are closed")?;
-        let defaults = NoteColors::default();
+        let mut defaults = NoteColors::default();
+        if native_frame {
+            // Preserve hidden preferences for the same settings file on Linux.
+            defaults.light.border = self.settings.note.colors.light.border;
+            defaults.dark.border = self.settings.note.colors.dark.border;
+            if draft.slot == 6 {
+                draft.slot = 0;
+            }
+        }
         if all {
             draft.colors = defaults;
         } else {
@@ -221,10 +238,17 @@ impl App {
             fixed_background(dark)
         };
         let foreground = body_color(dark);
+        let native_frame = ui.global::<AppAppearance>().get_native_note_frame();
         ui.set_color_preview_background(ui_color(background));
-        ui.set_color_preview_border(ui_color(draft.palette().border));
+        ui.set_color_preview_border(if native_frame {
+            ui.global::<AppAppearance>().get_border()
+        } else {
+            ui_color(draft.palette().border)
+        });
         ui.set_color_preview_foreground(ui_color(foreground));
-        let low_contrast = if draft.slot < 6 {
+        let low_contrast = if native_frame {
+            contrast(foreground, background) < 4.5
+        } else if draft.slot < 6 {
             contrast(foreground, background) < 4.5
                 || contrast(draft.palette().border, background) < 1.5
         } else {
@@ -235,7 +259,11 @@ impl App {
         };
         ui.set_color_warning(
             if low_contrast {
-                "正文或边框与背景对比偏低，建议调整；仍可保存此配色。"
+                if native_frame {
+                    "正文与背景对比偏低，建议调整；仍可保存此配色。"
+                } else {
+                    "正文或边框与背景对比偏低，建议调整；仍可保存此配色。"
+                }
             } else {
                 ""
             }

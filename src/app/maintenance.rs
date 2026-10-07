@@ -29,6 +29,15 @@ impl App {
         self.maintain_auxiliary_windows(now)?;
         for (window_id, panel) in &mut self.notes {
             if !panel.restored && panel.ui.window().has_winit_window() {
+                // show() may return before the native window exists. Install
+                // its frame once it is ready, before restoring geometry/state.
+                if let Err(error) = platform::install_note_frame(panel.ui.window()) {
+                    eprintln!(
+                        "cannot install native note frame, using compatibility border: {error:#}"
+                    );
+                    panel.ui.set_native_frame(false);
+                    panel.ui.set_status("原生边框不可用，已使用兼容边框".into());
+                }
                 panel.update_window_limits(panel.state.monitor_id.as_deref());
                 platform::restore(panel.ui.window(), &panel.state);
                 let capabilities = platform::capabilities(panel.ui.window());

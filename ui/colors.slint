@@ -84,6 +84,7 @@ export component ColorsEditor inherits VerticalLayout {
     callback edit-color-rgb(string, string, string);
     callback edit-color-hex(string);
     callback reset-color(bool);
+    private property <[float]> editable-slots: AppAppearance.native-note-frame ? [0, 1, 2, 3, 4, 5] : [0, 1, 2, 3, 4, 5, 6];
     spacing: (10px * AppAppearance.ui-scale);
     alignment: start;
 
@@ -97,7 +98,7 @@ export component ColorsEditor inherits VerticalLayout {
     Text {
         font-family: AppAppearance.font-family;
         font-size: (12px * AppAppearance.ui-scale) * AppAppearance.font-scale;
-        text: "分别编辑浅色和深色配色，不切换当前外观模式。修改保存后应用到便签与列表。白 / 黑背景随外观固定变换。";
+        text: "分别编辑浅色和深色配色，不切换当前外观模式。修改保存后应用到便签与列表。白 / 黑背景随外观固定变换。" + (AppAppearance.native-note-frame ? " Windows 边框颜色由系统管理，预览卡边框仅作示意。" : "");
         color: AppAppearance.muted-foreground;
         wrap: word-wrap;
     }
@@ -112,7 +113,7 @@ export component ColorsEditor inherits VerticalLayout {
             clicked => { root.select-color(1, root.color-slot); }
         }
     }
-    for slot in [0, 1, 2, 3, 4, 5, 6]: ColorChoice {
+    for slot in root.editable-slots: ColorChoice {
         text: root.color-slots[root.color-mode * 7 + slot].name;
         detail: root.color-slots[root.color-mode * 7 + slot].hex;
         swatch-color: root.color-slots[root.color-mode * 7 + slot].value;

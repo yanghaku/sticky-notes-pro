@@ -52,6 +52,7 @@ impl App {
             ),
         };
         let ui = NoteWindow::new()?;
+        ui.set_native_frame(cfg!(target_os = "windows"));
         ui.set_status(if persisted {
             "已保存".into()
         } else {

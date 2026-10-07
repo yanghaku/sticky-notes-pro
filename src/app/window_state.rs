@@ -16,17 +16,19 @@ impl Panel {
         {
             return;
         }
-        self.ui.set_available_width(available.width);
-        self.ui.set_available_height(available.height);
-        if !window.is_maximized() && !window.is_minimized() {
-            let size = window.size().to_logical(window.scale_factor());
-            if size.width > available.width || size.height > available.height {
-                window.set_size(slint::LogicalSize::new(
-                    size.width.min(available.width),
-                    size.height.min(available.height),
-                ));
+        platform::update_note_window(window, || {
+            self.ui.set_available_width(available.width);
+            self.ui.set_available_height(available.height);
+            if !window.is_maximized() && !window.is_minimized() {
+                let size = window.size().to_logical(window.scale_factor());
+                if size.width > available.width || size.height > available.height {
+                    window.set_size(slint::LogicalSize::new(
+                        size.width.min(available.width),
+                        size.height.min(available.height),
+                    ));
+                }
             }
-        }
+        });
     }
 }
 
