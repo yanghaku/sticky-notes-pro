@@ -29,6 +29,24 @@ pub fn install_note_frame(window: &slint::Window) -> anyhow::Result<()> {
     }
 }
 
+/// Invalidate Slint's whole client area, not only the application's editor image.
+/// This uses the existing Slint 1.17.1 bridge; recheck it on dependency upgrades.
+pub fn request_full_redraw(window: &slint::Window) {
+    use slint::private_unstable_api::re_exports::{WindowInner, vtable};
+
+    let inner = WindowInner::from_pub(window);
+    if let Some(component) = inner.try_component() {
+        let bounds = vtable::VRc::borrow_pin(&component)
+            .as_ref()
+            .item_geometry(0);
+        inner
+            .window_adapter()
+            .renderer()
+            .mark_dirty_region(bounds.into());
+    }
+    window.request_redraw();
+}
+
 /// Flush note constraints inside the same explicit client-resize scope as the
 /// property change. Slint's later deferred update then sees unchanged limits.
 /// Slint 1.17.1 resets client size when applying min/max constraints; recheck

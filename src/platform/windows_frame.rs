@@ -20,9 +20,10 @@ use windows_sys::Win32::{
             GWL_EXSTYLE, GWL_STYLE, GetWindowLongW, GetWindowRect, GetWindowThreadProcessId,
             HTCLIENT, HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT, IsIconic, IsZoomed,
             MINMAXINFO, NCCALCSIZE_PARAMS, STYLESTRUCT, SWP_FRAMECHANGED, SWP_NOACTIVATE,
-            SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowLongW, SetWindowPos, WINDOWPOS,
-            WM_DPICHANGED, WM_GETMINMAXINFO, WM_NCCALCSIZE, WM_NCDESTROY, WM_NCHITTEST,
+            SWP_NOCOPYBITS, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowLongW, SetWindowPos,
+            WINDOWPOS, WM_DPICHANGED, WM_GETMINMAXINFO, WM_NCCALCSIZE, WM_NCDESTROY, WM_NCHITTEST,
             WM_STYLECHANGING, WM_WINDOWPOSCHANGING, WS_BORDER, WS_CAPTION, WS_THICKFRAME,
+            WVR_REDRAW,
         },
     },
 };
@@ -186,7 +187,12 @@ fn refresh_frame(hwnd: HWND) -> Result<()> {
             0,
             0,
             0,
-            SWP_FRAMECHANGED | SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+            SWP_FRAMECHANGED
+                | SWP_NOCOPYBITS
+                | SWP_NOSIZE
+                | SWP_NOMOVE
+                | SWP_NOZORDER
+                | SWP_NOACTIVATE,
         )
     };
     ensure!(
@@ -321,9 +327,14 @@ unsafe extern "system" fn frame_proc(
             // SAFETY: the synchronous message's RECT remains writable. Retain
             // the thin native edge while exposing its thick resize band to UI.
             unsafe { (*rect).top = outer_top.saturating_add(TOP_BORDER).min((*rect).bottom) };
-            // The default valid-source rectangles were computed for a different
-            // top inset. Do not reuse them after changing the client rectangle.
-            return 0;
+            // Returning zero for TRUE preserves the old client pixels. Those
+            // pixels used another top inset: require a complete native repaint.
+            // The FALSE form only accepts zero and has no preservation contract.
+            return if wparam != 0 {
+                WVR_REDRAW as LRESULT
+            } else {
+                0
+            };
         }
         // Maximized windows retain Windows' normal work-area clipping, including
         // its offscreen resize border; never expose that area to the note UI.

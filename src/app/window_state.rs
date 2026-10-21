@@ -6,6 +6,33 @@ const STATE_DEBOUNCE: Duration = Duration::from_millis(400);
 const STATE_INTERVAL: Duration = Duration::from_secs(2);
 
 impl Panel {
+    /// Called as soon as the HWND exists, and always before the first Slint draw.
+    /// The timer also retries this for windows created later by the event loop.
+    pub(super) fn initialize_window(&mut self) -> Option<platform::Capabilities> {
+        if self.restored || !self.ui.window().has_winit_window() {
+            return None;
+        }
+        if let Err(error) = platform::install_note_frame(self.ui.window()) {
+            eprintln!("cannot install native note frame, using compatibility border: {error:#}");
+            self.ui.set_native_frame(false);
+            self.ui.set_status("原生边框不可用，已使用兼容边框".into());
+        }
+        self.update_window_limits(self.state.monitor_id.as_deref());
+        platform::restore(self.ui.window(), &self.state);
+        let capabilities = platform::capabilities(self.ui.window());
+        self.ui.set_pin_supported(capabilities.pin);
+        if capabilities.is_wayland {
+            self.ui.set_status("Wayland：位置与置顶由桌面管理".into());
+        }
+        self.restored = true;
+        self.render_dirty = true;
+        self.set_ime_enabled(self.editor.is_some());
+        // A frame change can move the client origin without changing its final
+        // size. Repainting only the editor image leaves the toolbar untouched.
+        platform::request_full_redraw(self.ui.window());
+        Some(capabilities)
+    }
+
     pub(super) fn update_window_limits(&self, monitor_hint: Option<&str>) {
         let window = self.ui.window();
         let Some(available) = platform::available_size(window, monitor_hint) else {

@@ -28,29 +28,13 @@ impl App {
         }
         self.maintain_auxiliary_windows(now)?;
         for (window_id, panel) in &mut self.notes {
-            if !panel.restored && panel.ui.window().has_winit_window() {
-                // show() may return before the native window exists. Install
-                // its frame once it is ready, before restoring geometry/state.
-                if let Err(error) = platform::install_note_frame(panel.ui.window()) {
-                    eprintln!(
-                        "cannot install native note frame, using compatibility border: {error:#}"
-                    );
-                    panel.ui.set_native_frame(false);
-                    panel.ui.set_status("原生边框不可用，已使用兼容边框".into());
+            if let Some(capabilities) = panel.initialize_window()
+                && capabilities.is_wayland
+            {
+                if let Some(id) = &panel.state.note_id {
+                    self.list_dirty_rows.insert(id.clone());
                 }
-                panel.update_window_limits(panel.state.monitor_id.as_deref());
-                platform::restore(panel.ui.window(), &panel.state);
-                let capabilities = platform::capabilities(panel.ui.window());
-                panel.ui.set_pin_supported(capabilities.pin);
-                if capabilities.is_wayland {
-                    panel.ui.set_status("Wayland：位置与置顶由桌面管理".into());
-                    if let Some(id) = &panel.state.note_id {
-                        self.list_dirty_rows.insert(id.clone());
-                    }
-                    self.list_dirty = true;
-                }
-                panel.restored = true;
-                panel.set_ime_enabled(panel.editor.is_some());
+                self.list_dirty = true;
             }
             if panel
                 .ime_wait_started

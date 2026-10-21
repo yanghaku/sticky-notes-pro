@@ -184,7 +184,22 @@ impl App {
             }
             return Err(error).context("cannot show the note window");
         }
+        // While the loop is already running, show() may create the HWND now.
+        // At startup it may not; the first redraw hook below handles that case.
+        shared.borrow_mut().initialize_note_window(&id);
         Ok(())
+    }
+
+    fn initialize_note_window(&mut self, id: &str) {
+        if let Some(panel) = self.notes.get_mut(id)
+            && let Some(capabilities) = panel.initialize_window()
+            && capabilities.is_wayland
+        {
+            if let Some(note_id) = &panel.state.note_id {
+                self.list_dirty_rows.insert(note_id.clone());
+            }
+            self.list_dirty = true;
+        }
     }
 
     pub(super) fn wire_note(shared: &Rc<RefCell<Self>>, id: &str, ui: &NoteWindow) {
@@ -350,6 +365,9 @@ impl App {
                 return EventResult::Propagate;
             };
             if matches!(event, WindowEvent::RedrawRequested) {
+                // Slint invokes this hook before draw(): never present a frame
+                // using the system caption's old client geometry.
+                app.initialize_note_window(&note_id);
                 let font_size = app.settings.editor.font_size as f32;
                 if let Some(panel) = app.notes.get_mut(&note_id) {
                     panel.paint(font_size);
